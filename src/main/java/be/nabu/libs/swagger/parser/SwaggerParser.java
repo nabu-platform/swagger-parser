@@ -114,7 +114,7 @@ public class SwaggerParser {
 				switch(security.getType()) {
 					case apiKey:
 						if (securityContent.getContent().containsKey("in")) {
-							security.setLocation(ParameterLocation.valueOf((String) securityContent.getContent().get("in")));
+							security.setLocation(ParameterLocation.valueOf(((String) securityContent.getContent().get("in")).toUpperCase()));
 						}
 						security.setFieldName((String) securityContent.getContent().get("name"));
 					break;
