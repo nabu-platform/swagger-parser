@@ -24,12 +24,14 @@ import be.nabu.libs.swagger.api.SwaggerResponse;
 import be.nabu.libs.swagger.api.SwaggerSecurityDefinition;
 import be.nabu.libs.swagger.api.SwaggerSecurityDefinition.OAuth2Flow;
 import be.nabu.libs.swagger.api.SwaggerSecurityDefinition.SecurityType;
+import be.nabu.libs.swagger.api.SwaggerSecuritySetting;
 import be.nabu.libs.types.SimpleTypeWrapperFactory;
 import be.nabu.libs.types.TypeRegistryImpl;
 import be.nabu.libs.types.api.ComplexContent;
 import be.nabu.libs.types.api.ComplexType;
 import be.nabu.libs.types.api.DefinedType;
 import be.nabu.libs.types.api.Element;
+import be.nabu.libs.types.api.Marshallable;
 import be.nabu.libs.types.api.ModifiableType;
 import be.nabu.libs.types.api.ModifiableTypeRegistry;
 import be.nabu.libs.types.api.SimpleType;
@@ -76,6 +78,7 @@ public class SwaggerParser {
 		binding.setAddDynamicElementDefinitions(true);
 		binding.setAllowRaw(true);
 		binding.setParseNumbers(true);
+		binding.setSetEmptyArrays(true);
 		try {
 			SwaggerDefinitionImpl definition = new SwaggerDefinitionImpl(id);
 			MapContent content = (MapContent) binding.unmarshal(input, new Window[0]);
@@ -221,6 +224,7 @@ public class SwaggerParser {
 			// based on example: https://github.com/OAI/OpenAPI-Specification/blob/master/fixtures/v2.0/json/resources/securityExample.json
 			if (methodContent.get("security") != null) {
 				List<Object> securities = (List<Object>) methodContent.get("security");
+				List<SwaggerSecuritySetting> settings = new ArrayList<SwaggerSecuritySetting>();
 				for (Object security : securities) {
 					// not sure if there can ever be more than one security entry per object, this is an odd part of the spec
 					MapContent securityContent = (MapContent) security;
@@ -228,7 +232,11 @@ public class SwaggerParser {
 						SwaggerSecuritySettingImpl impl = new SwaggerSecuritySettingImpl();
 						impl.setName((String) name);
 						impl.setScopes((List<String>) securityContent.getContent().get(name));
+						settings.add(impl);
 					}
+				}
+				if (!settings.isEmpty()) {
+					swaggerMethod.setSecurity(settings);
 				}
 			}
 			methods.add(swaggerMethod);
@@ -288,7 +296,7 @@ public class SwaggerParser {
 		boolean uppercase = false;
 		for (int i = 0; i < name.length(); i++) {
 			if (builder.toString().isEmpty() && isValid(name.charAt(i), true)) {
-				builder.append(name.substring(i, i + 1));
+				builder.append(name.substring(i, i + 1).toLowerCase());
 			}
 			else if (isValid(name.charAt(i), false)) {
 				if (uppercase) {
@@ -432,7 +440,15 @@ public class SwaggerParser {
 			// this extension does not need to be registered globally (in general)
 			// nabu allows for casting in parents to children, so at runtime you can create a parent instance and cast it to the child
 			// so this will work transparently...
-			if (parsedDefinedType instanceof SimpleType) {
+			if (parsedDefinedType instanceof Marshallable) {
+				result = new MarshallableSimpleTypeExtension(
+					!isRoot && parsedDefinedType instanceof DefinedType ? ((DefinedType) parsedDefinedType).getId() : typeId, 
+					isRoot ? definition.getId() : null, 
+					name, 
+					(SimpleType) parsedDefinedType
+				);
+			}
+			else if (parsedDefinedType instanceof SimpleType) {
 				result = new SimpleTypeExtension(
 					!isRoot && parsedDefinedType instanceof DefinedType ? ((DefinedType) parsedDefinedType).getId() : typeId, 
 					isRoot ? definition.getId() : null, 
@@ -478,7 +494,7 @@ public class SwaggerParser {
 					simpleType = SimpleTypeWrapperFactory.getInstance().getWrapper().wrap(byte[].class);
 				}
 				else if (format.equals("binary")) {
-					throw new ParseException("There is currently no support for pure binary streams", 0);
+					simpleType = SimpleTypeWrapperFactory.getInstance().getWrapper().wrap(InputStream.class);
 				}
 				else if (format.equals("date") || format.equals("date-time")) {
 					simpleType = SimpleTypeWrapperFactory.getInstance().getWrapper().wrap(Date.class);
@@ -524,7 +540,7 @@ public class SwaggerParser {
 				values.add(new ValueImpl<Integer>(MinOccursProperty.getInstance(), 0));
 			}
 			
-			result = new SimpleTypeExtension(typeId, isRoot ? definition.getId() : null, name, simpleType);
+			result = new MarshallableSimpleTypeExtension(typeId, isRoot ? definition.getId() : null, name, simpleType);
 		}
 		
 		if (isRoot) {
