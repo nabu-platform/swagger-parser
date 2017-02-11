@@ -318,10 +318,16 @@ public class SwaggerParser {
 		if (name.startsWith("#/definitions/")) {
 			name = name.substring("#/definitions/".length());
 		}
-		name = cleanup(name);
 		Type type = definition.getRegistry().getComplexType(definition.getId(), name);
 		if (type == null) {
 			type = definition.getRegistry().getSimpleType(definition.getId(), name);
+		}
+		if (type == null) {
+			name = cleanup(name);
+			type = definition.getRegistry().getComplexType(definition.getId(), name);
+			if (type == null) {
+				type = definition.getRegistry().getSimpleType(definition.getId(), name);
+			}	
 		}
 		if (type == null) {
 			throw new ParseException("Can not resolve type: " + name, 1);
