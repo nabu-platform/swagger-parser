@@ -3,11 +3,12 @@ package be.nabu.libs.swagger.parser;
 import be.nabu.libs.property.api.Value;
 import be.nabu.libs.types.api.Marshallable;
 import be.nabu.libs.types.api.SimpleType;
+import be.nabu.libs.types.api.Unmarshallable;
 import be.nabu.libs.types.base.BaseMarshallableSimpleType;
 import be.nabu.libs.types.base.ValueImpl;
 import be.nabu.libs.types.structure.SuperTypeProperty;
 
-public class MarshallableSimpleTypeExtension<T> extends BaseMarshallableSimpleType<T> {
+public class MarshallableSimpleTypeExtension<T> extends BaseMarshallableSimpleType<T> implements Unmarshallable<T> {
 
 	private String id;
 	private String namespace;
@@ -42,6 +43,12 @@ public class MarshallableSimpleTypeExtension<T> extends BaseMarshallableSimpleTy
 	@Override
 	public String getId() {
 		return id;
+	}
+
+	@SuppressWarnings("unchecked")
+	@Override
+	public T unmarshal(String content, Value<?>...values) {
+		return ((Unmarshallable<T>) getSuperType()).unmarshal(content, values);
 	}
 	
 }

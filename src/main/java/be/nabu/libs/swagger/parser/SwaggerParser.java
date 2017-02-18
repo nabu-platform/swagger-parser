@@ -27,6 +27,7 @@ import be.nabu.libs.swagger.api.SwaggerSecurityDefinition.SecurityType;
 import be.nabu.libs.swagger.api.SwaggerSecuritySetting;
 import be.nabu.libs.types.SimpleTypeWrapperFactory;
 import be.nabu.libs.types.TypeRegistryImpl;
+import be.nabu.libs.types.TypeUtils;
 import be.nabu.libs.types.api.ComplexContent;
 import be.nabu.libs.types.api.ComplexType;
 import be.nabu.libs.types.api.DefinedType;
@@ -41,6 +42,7 @@ import be.nabu.libs.types.base.SimpleElementImpl;
 import be.nabu.libs.types.base.ValueImpl;
 import be.nabu.libs.types.binding.api.Window;
 import be.nabu.libs.types.binding.json.JSONBinding;
+import be.nabu.libs.types.java.BeanType;
 import be.nabu.libs.types.map.MapContent;
 import be.nabu.libs.types.map.MapTypeGenerator;
 import be.nabu.libs.types.properties.CommentProperty;
@@ -362,8 +364,11 @@ public class SwaggerParser {
 			if (schema.get("$ref") != null) {
 				type = findType(definition, (String) schema.get("$ref"));
 			}
+			else if (schema.get("type") != null) {
+				type = parseDefinedType(definition, name, schema.getContent(), false, true);
+			}
 			else {
-				throw new ParseException("Unsupported use of schema", 0);
+				throw new ParseException("Unsupported use of schema for element '" + name + "': " + schema, 0);
 			}
 		}
 		else {
@@ -428,7 +433,13 @@ public class SwaggerParser {
 				}
 			}
 			
-			result = structure;
+			// if the structure has no fields, make it a generic object instead (unless it is a root, because then it is referred to by other types and must be resolvable)
+			if (!isRoot && TypeUtils.getAllChildren(structure).isEmpty()) {
+				result = new BeanType<Object>(Object.class);
+			}
+			else {
+				result = structure;
+			}
 		}
 		// special fucking shit
 		else if (type.equals("array")) {
@@ -481,7 +492,9 @@ public class SwaggerParser {
 			
 			Number maxOccurs = (Number) content.get("maxItems");
 			Number minOccurs = (Number) content.get("minItems");
-			values.add(new ValueImpl<Integer>(MaxOccursProperty.getInstance(), maxOccurs == null ? 0 : maxOccurs.intValue()));
+			
+			int defaultMaxOccurs = result instanceof SimpleType && ((SimpleType<?>) result).getInstanceClass().equals(byte[].class) ? 1 : 0;
+			values.add(new ValueImpl<Integer>(MaxOccursProperty.getInstance(), maxOccurs == null ? defaultMaxOccurs : maxOccurs.intValue()));
 			values.add(new ValueImpl<Integer>(MinOccursProperty.getInstance(), minOccurs == null ? 0 : minOccurs.intValue()));
 		}
 		// simple type
@@ -534,6 +547,9 @@ public class SwaggerParser {
 			}
 			else if (type.equals("boolean")) {
 				simpleType = SimpleTypeWrapperFactory.getInstance().getWrapper().wrap(Boolean.class);
+			}
+			else if (type.equals("file")) {
+				simpleType = SimpleTypeWrapperFactory.getInstance().getWrapper().wrap(InputStream.class);
 			}
 			else {
 				throw new ParseException("Unsupported type: " + type, 0);
