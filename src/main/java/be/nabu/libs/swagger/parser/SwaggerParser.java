@@ -2,6 +2,8 @@ package be.nabu.libs.swagger.parser;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.net.URI;
 import java.net.URL;
 import java.nio.charset.Charset;
@@ -11,6 +13,7 @@ import java.util.Collection;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 import be.nabu.libs.converter.ConverterFactory;
 import be.nabu.libs.property.api.Value;
@@ -500,6 +503,8 @@ public class SwaggerParser {
 		// simple type
 		else {
 			SimpleType<?> simpleType;
+			// note that the "format" is only indicative, there are a few listed formats you should use
+			// but apart from that you can use any format you choose
 			String format = (String) content.get("format");
 			if (type.equals("string")) {
 				if (format == null || format.equals("string") || format.equals("password")) {
@@ -515,12 +520,20 @@ public class SwaggerParser {
 				else if (format.equals("binary")) {
 					simpleType = SimpleTypeWrapperFactory.getInstance().getWrapper().wrap(InputStream.class);
 				}
-				else if (format.equals("date") || format.equals("date-time")) {
+				else if (format.equals("date")) {
 					simpleType = SimpleTypeWrapperFactory.getInstance().getWrapper().wrap(Date.class);
-					values.add(new ValueImpl<String>(FormatProperty.getInstance(), format.equals("date") ? "date" : "dateTime"));
+					values.add(new ValueImpl<String>(FormatProperty.getInstance(), "date"));
+				}
+				// don't set any additional properties for dateTime, this is the default and we avoid generating some unnecessary simple types
+				else if (format.equals("date-time")) {
+					simpleType = SimpleTypeWrapperFactory.getInstance().getWrapper().wrap(Date.class);
+				}
+				else if (format.equals("uuid")) {
+					simpleType = SimpleTypeWrapperFactory.getInstance().getWrapper().wrap(UUID.class);
 				}
 				else {
-					throw new ParseException("Invalid subtype for string: " + format, 0);
+					simpleType = SimpleTypeWrapperFactory.getInstance().getWrapper().wrap(String.class);
+					values.add(new ValueImpl<String>(CommentProperty.getInstance(), "Unsupported Format: " + format));
 				}
 			}
 			else if (type.equals("number")) {
@@ -531,7 +544,8 @@ public class SwaggerParser {
 					simpleType = SimpleTypeWrapperFactory.getInstance().getWrapper().wrap(Float.class);
 				}
 				else {
-					throw new ParseException("Invalid subtype for number: " + format, 0);
+					simpleType = SimpleTypeWrapperFactory.getInstance().getWrapper().wrap(Double.class);
+					values.add(new ValueImpl<String>(CommentProperty.getInstance(), "Unsupported Format: " + format));
 				}
 			}
 			else if (type.equals("integer")) {
@@ -541,8 +555,15 @@ public class SwaggerParser {
 				else if (format.equals("int64")) {
 					simpleType = SimpleTypeWrapperFactory.getInstance().getWrapper().wrap(Long.class);
 				}
+				else if (format.equalsIgnoreCase("bigInteger")) {
+					simpleType = SimpleTypeWrapperFactory.getInstance().getWrapper().wrap(BigInteger.class);
+				}
+				else if (format.equalsIgnoreCase("bigDecimal")) {
+					simpleType = SimpleTypeWrapperFactory.getInstance().getWrapper().wrap(BigDecimal.class);
+				}
 				else {
-					throw new ParseException("Invalid subtype for integer: " + format, 0);
+					simpleType = SimpleTypeWrapperFactory.getInstance().getWrapper().wrap(Long.class);
+					values.add(new ValueImpl<String>(CommentProperty.getInstance(), "Unsupported Format: " + format));
 				}
 			}
 			else if (type.equals("boolean")) {
@@ -613,9 +634,14 @@ public class SwaggerParser {
 			values.add(new ValueImpl(PatternProperty.getInstance(), pattern));
 		}
 		
-		result.setProperty(values.toArray(new Value[values.size()]));
-		
-		return result;
+		// if we have a simple type with no additional settings and it is not a root definition, unwrap it to the original simple type
+		if (values.isEmpty() && !isRoot && result instanceof SimpleType) {
+			return result.getSuperType();
+		}
+		else {
+			result.setProperty(values.toArray(new Value[values.size()]));
+			return result;
+		}
 	}
 	
 	@SuppressWarnings({ "unchecked", "rawtypes" })
