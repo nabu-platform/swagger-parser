@@ -16,6 +16,7 @@ import java.util.Map;
 import java.util.UUID;
 
 import be.nabu.libs.converter.ConverterFactory;
+import be.nabu.libs.property.ValueUtils;
 import be.nabu.libs.property.api.Value;
 import be.nabu.libs.swagger.api.SwaggerDefinition;
 import be.nabu.libs.swagger.api.SwaggerMethod;
@@ -444,7 +445,6 @@ public class SwaggerParser {
 				result = structure;
 			}
 		}
-		// special fucking shit
 		else if (type.equals("array")) {
 			// the actual type is in "items"
 			MapContent items = (MapContent) content.get("items");
@@ -659,6 +659,17 @@ public class SwaggerParser {
 			}
 			if (childType instanceof SimpleType) {
 				structure.add(new SimpleElementImpl((String) key, (SimpleType<?>) childType, structure, new ValueImpl<Integer>(MinOccursProperty.getInstance(), required == null || !required.contains(key) ? 0 : 1)));
+			}
+			// if we have a complex type that extends "Object" and has no other properties, unwrap it
+			// ideally the parseDefinedType should probably be updated to parseElement or something so we don't need to extend types to transfer information...
+			else if (childType instanceof ComplexType && TypeUtils.getAllChildren((ComplexType) childType).isEmpty() && ((ComplexType) childType).getSuperType() instanceof BeanType && ((BeanType<?>) ((ComplexType) childType).getSuperType()).getBeanClass().equals(Object.class)) {
+				ComplexElementImpl element = new ComplexElementImpl((String) key, (ComplexType) childType.getSuperType(), structure, new ValueImpl<Integer>(MinOccursProperty.getInstance(), required == null || !required.contains(key) ? 0 : 1));
+				// inherit properties like maxOccurs
+				Integer maxOccurs = ValueUtils.getValue(MaxOccursProperty.getInstance(), childType.getProperties());
+				if (maxOccurs != null) {
+					element.setProperty(new ValueImpl<Integer>(MaxOccursProperty.getInstance(), maxOccurs));
+				}
+				structure.add(element);				
 			}
 			else {
 				structure.add(new ComplexElementImpl((String) key, (ComplexType) childType, structure, new ValueImpl<Integer>(MinOccursProperty.getInstance(), required == null || !required.contains(key) ? 0 : 1)));
