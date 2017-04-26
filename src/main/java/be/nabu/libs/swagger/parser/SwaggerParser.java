@@ -11,6 +11,7 @@ import java.text.ParseException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -63,6 +64,24 @@ import be.nabu.libs.types.properties.MinOccursProperty;
 import be.nabu.libs.types.properties.PatternProperty;
 import be.nabu.libs.types.structure.DefinedStructure;
 
+/** in theory there is a descriminator field where you could have (as far as I can tell):
+ Animal:
+    type: object
+    discriminator: petType
+    properties:
+      commonName:
+        type: string
+      petType:
+      	type: string
+      	
+ Cat extends animal
+ Dog extends animal
+ 
+ Method return animal
+ 
+ At runtime it can be either a cat or a dog and the field "petType" in this case must contain either Cat or Dog (exact naming)
+ The petType must also be in the list of properties of the type _and_ be in the required list.
+ */
 public class SwaggerParser {
 	
 	public static void main(String...args) throws IOException {
@@ -98,6 +117,8 @@ public class SwaggerParser {
 			parseDefinitions(definition, content);
 			parseSecurityDefinitions(definition, content);
 			
+			definition.setParameters(parseParameters(definition, (MapContent) content.get("parameters")));
+			
 			if (content.get("paths") != null) {
 				definition.setPaths(parsePaths(definition, (MapContent) content.get("paths")));
 			}
@@ -107,6 +128,30 @@ public class SwaggerParser {
 		catch (Exception e) {
 			throw new RuntimeException(e);
 		}
+	}
+	
+	@SuppressWarnings("unchecked")
+	private static Map<String, SwaggerParameter> parseParameters(SwaggerDefinition definition, MapContent content) throws ParseException {
+		Map<String, SwaggerParameter> parameters = new HashMap<String, SwaggerParameter>();
+		if (content != null) {
+			for (String key : ((Map<String, Object>) content.getContent()).keySet()) {
+				Object object = ((Map<String, Object>) content.getContent()).get(key);
+				parameters.put(key, parseParameter(definition, ((MapContent) object).getContent()));
+			}
+		}
+		return parameters;
+	}
+	
+	@SuppressWarnings("unchecked")
+	private static Map<String, SwaggerParameter> parseParameters(SwaggerDefinition definition, List<MapContent> content) throws ParseException {
+		Map<String, SwaggerParameter> parameters = new HashMap<String, SwaggerParameter>();
+		if (content != null) {
+			for (MapContent single : content) {
+				SwaggerParameter parseParameter = parseParameter(definition, single.getContent());
+				parameters.put(parseParameter.getName(), parseParameter);
+			}
+		}
+		return parameters;
 	}
 	
 	@SuppressWarnings({ "unchecked", "incomplete-switch" })
@@ -159,7 +204,12 @@ public class SwaggerParser {
 	@SuppressWarnings({ "unchecked", "rawtypes" })
 	private static List<SwaggerMethod> parseMethods(SwaggerDefinitionImpl definition, MapContent content) throws ParseException {
 		List<SwaggerMethod> methods = new ArrayList<SwaggerMethod>();
+		
+		Map<String, SwaggerParameter> inheritedParameters = parseParameters(definition, (List<MapContent>) content.getContent().get("parameters"));
 		for (Object method : content.getContent().keySet()) {
+			if ("parameters".equalsIgnoreCase(method.toString())) {
+				continue;
+			}
 			MapContent methodContent = (MapContent) content.getContent().get(method);
 			SwaggerMethodImpl swaggerMethod = new SwaggerMethodImpl();
 			swaggerMethod.setMethod((String) method);
@@ -176,10 +226,18 @@ public class SwaggerParser {
 			}
 			if (methodContent.get("parameters") != null) {
 				List<Object> parameters = (List<Object>) methodContent.get("parameters");
-				List<SwaggerParameter> list = new ArrayList<SwaggerParameter>(); 
+				List<SwaggerParameter> list = new ArrayList<SwaggerParameter>();
+				List<String> overriddenParameters = new ArrayList<String>();
 				for (Object object : parameters) {
 					MapContent map = (MapContent) object;
-					list.add(parseParameter(definition, map.getContent()));
+					SwaggerParameter parameter = parseParameter(definition, map.getContent());
+					list.add(parameter);
+					overriddenParameters.add(parameter.getName());
+				}
+				for (String key : inheritedParameters.keySet()) {
+					if (!overriddenParameters.contains(key)) {
+						list.add(inheritedParameters.get(key));
+					}
 				}
 				swaggerMethod.setParameters(list);
 			}
@@ -342,6 +400,13 @@ public class SwaggerParser {
 	}
 	
 	private static SwaggerParameter parseParameter(SwaggerDefinition definition, Map<String, Object> content) throws ParseException {
+		if (content.containsKey("$ref")) {
+			SwaggerParameter swaggerParameter = ((SwaggerDefinitionImpl) definition).getParameters().get(content.get("$ref").toString().substring("#/parameters/".length()));
+			if (swaggerParameter == null) {
+				throw new ParseException("Could not find referenced parameter: " + content.get("$ref"), 0);
+			}
+			return swaggerParameter;
+		}
 		SwaggerParameterImpl parameter = new SwaggerParameterImpl();
 		parameter.setName((String) content.get("name"));
 		// we currently do nothing with these parameters
@@ -412,14 +477,34 @@ public class SwaggerParser {
 				for (Object single : allOf) {
 					Map<String, Object> singleMap = ((MapContent) single).getContent();
 					if (singleMap.containsKey("$ref")) {
-						if (structure.getSuperType() != null) {
-							throw new ParseException("Multiple composition is not allowed", 0);
+						// the first ref will be mapped as a supertype
+						if (structure.getSuperType() == null) {
+							Type superType = findType(definition, (String) singleMap.get("$ref"));
+							if (superType == null) {
+								throw new ParseException("Can not find super type: " + singleMap.get("$ref"), 1);
+							}
+							structure.setSuperType(superType);
 						}
-						Type superType = findType(definition, (String) singleMap.get("$ref"));
-						if (superType == null) {
-							throw new ParseException("Can not find super type: " + singleMap.get("$ref"), 1);
+						// other refs are expanded in it
+						else {
+							Type superType = findType(definition, (String) singleMap.get("$ref"));
+							if (superType == null) {
+								throw new ParseException("Can not find super type: " + singleMap.get("$ref"), 1);
+							}
+							if (superType instanceof ComplexType) {
+								for (Element<?> child : TypeUtils.getAllChildren((ComplexType) superType)) {
+									if (child.getType() instanceof ComplexType) {
+										structure.add(new ComplexElementImpl(child.getName(), (ComplexType) child.getType(), structure, child.getProperties()));
+									}
+									else {
+										structure.add(new SimpleElementImpl(child.getName(), (SimpleType<?>) child.getType(), structure, child.getProperties()));
+									}
+								}
+							}
+							else {
+								throw new ParseException("Can only unfold a complex type when doing multiple extensions", 2);
+							}
 						}
-						structure.setSuperType(superType);
 					}
 				}
 				// find all none-reference extensions
