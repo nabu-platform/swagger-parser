@@ -1,6 +1,7 @@
 package be.nabu.libs.swagger.parser;
 
 import java.util.List;
+import java.util.Map;
 
 import be.nabu.libs.swagger.api.SwaggerDocumentation;
 import be.nabu.libs.swagger.api.SwaggerMethod;
@@ -17,6 +18,7 @@ public class SwaggerMethodImpl implements SwaggerMethod {
 	private Boolean deprecated;
 	private List<SwaggerResponse> responses;
 	private List<SwaggerSecuritySetting> security;
+	private Map<String, Object> extensions;
 	
 	@Override
 	public String getMethod() {
@@ -120,6 +122,14 @@ public class SwaggerMethodImpl implements SwaggerMethod {
 	}
 	public void setSecurity(List<SwaggerSecuritySetting> security) {
 		this.security = security;
+	}
+	
+	@Override
+	public Map<String, Object> getExtensions() {
+		return extensions;
+	}
+	public void setExtensions(Map<String, Object> extensions) {
+		this.extensions = extensions;
 	}
 	
 }

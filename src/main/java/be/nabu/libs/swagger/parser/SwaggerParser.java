@@ -221,6 +221,8 @@ public class SwaggerParser {
 			swaggerMethod.setOperationId((String) methodContent.get("operationId"));
 			swaggerMethod.setTags((List<String>) methodContent.get("tags"));
 			swaggerMethod.setDeprecated((Boolean) methodContent.get("deprecated"));
+			swaggerMethod.setExtensions(parseExtensions(methodContent));
+			
 			if (methodContent.get("documentation") != null) {
 				swaggerMethod.setDocumentation(SwaggerDocumentationImpl.parse((ComplexContent) methodContent.get("documentation")));
 			}
@@ -306,6 +308,17 @@ public class SwaggerParser {
 			methods.add(swaggerMethod);
 		}
 		return methods;
+	}
+
+	@SuppressWarnings("unchecked")
+	private static Map<String, Object> parseExtensions(MapContent methodContent) {
+		Map<String, Object> extensions = new HashMap<String, Object>();
+		for (String key : ((Map<String, ?>) methodContent.getContent()).keySet()) {
+			if (key.startsWith("x-")) {
+				extensions.put(key.substring("x-".length()), methodContent.get(key));
+			}
+		}
+		return !extensions.isEmpty() ? extensions : null;
 	}
 
 	@SuppressWarnings("unchecked")
