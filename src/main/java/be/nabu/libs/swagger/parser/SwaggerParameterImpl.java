@@ -2,6 +2,7 @@ package be.nabu.libs.swagger.parser;
 
 import be.nabu.libs.swagger.api.SwaggerParameter;
 import be.nabu.libs.types.api.Element;
+import be.nabu.libs.types.base.CollectionFormat;
 
 public class SwaggerParameterImpl implements SwaggerParameter {
 	

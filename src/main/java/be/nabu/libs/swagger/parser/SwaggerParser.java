@@ -16,13 +16,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import be.nabu.libs.types.base.CollectionFormat;
 import be.nabu.libs.converter.ConverterFactory;
 import be.nabu.libs.property.ValueUtils;
 import be.nabu.libs.property.api.Value;
 import be.nabu.libs.swagger.api.SwaggerDefinition;
 import be.nabu.libs.swagger.api.SwaggerMethod;
 import be.nabu.libs.swagger.api.SwaggerParameter;
-import be.nabu.libs.swagger.api.SwaggerParameter.CollectionFormat;
 import be.nabu.libs.swagger.api.SwaggerParameter.ParameterLocation;
 import be.nabu.libs.swagger.api.SwaggerPath;
 import be.nabu.libs.swagger.api.SwaggerResponse;
@@ -50,6 +50,7 @@ import be.nabu.libs.types.binding.json.JSONBinding;
 import be.nabu.libs.types.java.BeanType;
 import be.nabu.libs.types.map.MapContent;
 import be.nabu.libs.types.map.MapTypeGenerator;
+import be.nabu.libs.types.properties.CollectionFormatProperty;
 import be.nabu.libs.types.properties.CommentProperty;
 import be.nabu.libs.types.properties.EnumerationProperty;
 import be.nabu.libs.types.properties.FormatProperty;
@@ -258,11 +259,11 @@ public class SwaggerParser {
 						Type type;
 						// it is usually a reference
 						if (schemaContent.get("$ref") != null) {
-							type = findType(definition, (String) schemaContent.get("$ref"));
+							type = findType(definition, (String) schemaContent.get("$ref"), null);
 						}
 						// but it "can" theoretically be a simple type as well, note that this may not work well...
 						else {
-							type = parseDefinedType(definition, "body", schemaContent.getContent(), false, false);
+							type = parseDefinedType(definition, "body", schemaContent.getContent(), false, false, new HashMap<String, Type>());
 //							throw new ParseException("Only supporting array or $ref for responses, found: " + schemaContent.getContent(), 0);
 						}
 						if (type instanceof ComplexType) {
@@ -344,7 +345,7 @@ public class SwaggerParser {
 				failed = new ArrayList<String>();
 				for (Object typeName : toParse) {
 					try {
-						parseDefinedType(definition, (String) typeName, ((MapContent) definitions.getContent().get(typeName)).getContent(), true, false);
+						parseDefinedType(definition, (String) typeName, ((MapContent) definitions.getContent().get(typeName)).getContent(), true, false, new HashMap<String, Type>());
 					}
 					catch (ParseException e) {
 						// we should repeat
@@ -391,7 +392,7 @@ public class SwaggerParser {
 		return builder.toString();
 	}
 	
-	private static Type findType(SwaggerDefinition definition, String name) throws ParseException {
+	private static Type findType(SwaggerDefinition definition, String name, Map<String, Type> ongoing) throws ParseException {
 		if (name.startsWith("#/definitions/")) {
 			name = name.substring("#/definitions/".length());
 		}
@@ -399,12 +400,18 @@ public class SwaggerParser {
 		if (type == null) {
 			type = definition.getRegistry().getSimpleType(definition.getId(), name);
 		}
+		if (type == null && ongoing.containsKey(name)) {
+			return ongoing.get(name);
+		}
 		if (type == null) {
 			name = cleanup(name);
 			type = definition.getRegistry().getComplexType(definition.getId(), name);
 			if (type == null) {
 				type = definition.getRegistry().getSimpleType(definition.getId(), name);
-			}	
+			}
+			if (type == null && ongoing.containsKey(name)) {
+				return ongoing.get(name);
+			}
 		}
 		if (type == null) {
 			throw new ParseException("Can not resolve type: " + name, 1);
@@ -432,6 +439,9 @@ public class SwaggerParser {
 			parameter.setCollectionFormat(CollectionFormat.valueOf(collectionFormat.toUpperCase()));
 		}
 		parameter.setElement(parseParameterElement(definition, content));
+		if (parameter.getCollectionFormat() != null) {
+			parameter.getElement().setProperty(new ValueImpl<CollectionFormat>(CollectionFormatProperty.getInstance(), parameter.getCollectionFormat()));
+		}
 		String in = (String) content.get("in");
 		parameter.setLocation(in == null ? null : ParameterLocation.valueOf(in.toUpperCase()));
 		return parameter;
@@ -444,17 +454,17 @@ public class SwaggerParser {
 		if (content.get("schema") != null) {
 			MapContent schema = (MapContent) content.get("schema");
 			if (schema.get("$ref") != null) {
-				type = findType(definition, (String) schema.get("$ref"));
+				type = findType(definition, (String) schema.get("$ref"), null);
 			}
 			else if (schema.get("type") != null) {
-				type = parseDefinedType(definition, name, schema.getContent(), false, true);
+				type = parseDefinedType(definition, name, schema.getContent(), false, true, new HashMap<String, Type>());
 			}
 			else {
 				throw new ParseException("Unsupported use of schema for element '" + name + "': " + schema, 0);
 			}
 		}
 		else {
-			type = parseDefinedType(definition, name, content, false, true);
+			type = parseDefinedType(definition, name, content, false, true, new HashMap<String, Type>());
 		}
 		Boolean required = (Boolean) content.get("required");
 		if (type instanceof SimpleType) {
@@ -465,8 +475,9 @@ public class SwaggerParser {
 		}
 	}
 	
+	// the ongoing allows for circular references to oneself
 	@SuppressWarnings({ "unchecked", "rawtypes" })
-	private static Type parseDefinedType(SwaggerDefinition definition, String name, Map<String, Object> content, boolean isRoot, boolean checkUndefinedRequired) throws ParseException {
+	private static Type parseDefinedType(SwaggerDefinition definition, String name, Map<String, Object> content, boolean isRoot, boolean checkUndefinedRequired, Map<String, Type> ongoing) throws ParseException {
 		String type = (String) content.get("type");
 		
 		String cleanedUpName = cleanup(name);
@@ -483,6 +494,8 @@ public class SwaggerParser {
 			structure.setName(name);
 			structure.setId(typeId);
 			
+			ongoing.put(name, structure);
+			
 			// allows for composition, it seems that multiple inheritance is possible which we do not support
 			if (content.get("allOf") != null) {
 				List<Object> allOf = (List<Object>) content.get("allOf");
@@ -492,7 +505,7 @@ public class SwaggerParser {
 					if (singleMap.containsKey("$ref")) {
 						// the first ref will be mapped as a supertype
 						if (structure.getSuperType() == null) {
-							Type superType = findType(definition, (String) singleMap.get("$ref"));
+							Type superType = findType(definition, (String) singleMap.get("$ref"), ongoing);
 							if (superType == null) {
 								throw new ParseException("Can not find super type: " + singleMap.get("$ref"), 1);
 							}
@@ -500,7 +513,7 @@ public class SwaggerParser {
 						}
 						// other refs are expanded in it
 						else {
-							Type superType = findType(definition, (String) singleMap.get("$ref"));
+							Type superType = findType(definition, (String) singleMap.get("$ref"), ongoing);
 							if (superType == null) {
 								throw new ParseException("Can not find super type: " + singleMap.get("$ref"), 1);
 							}
@@ -524,14 +537,14 @@ public class SwaggerParser {
 				for (Object single : allOf) {
 					Map<String, Object> singleMap = ((MapContent) single).getContent();
 					if (!singleMap.containsKey("$ref")) {
-						parseStructureProperties(definition, name, ((MapContent) single).getContent(), structure, (MapContent) ((MapContent) single).get("properties"));
+						parseStructureProperties(definition, name, ((MapContent) single).getContent(), structure, (MapContent) ((MapContent) single).get("properties"), ongoing);
 					}
 				}
 			}
 			else {
 				MapContent properties = (MapContent) content.get("properties");
 				if (properties != null) {
-					parseStructureProperties(definition, name, content, structure, properties);
+					parseStructureProperties(definition, name, content, structure, properties, ongoing);
 				}
 			}
 			
@@ -551,8 +564,8 @@ public class SwaggerParser {
 			}
 			
 			Type parsedDefinedType = items.get("$ref") == null 
-				? parseDefinedType(definition, name, items.getContent(), false, checkUndefinedRequired)
-				: findType(definition, (String) items.get("$ref"));
+				? parseDefinedType(definition, name, items.getContent(), false, checkUndefinedRequired, ongoing)
+				: findType(definition, (String) items.get("$ref"), ongoing);
 				
 			// we need to extend it to add the fucked up max/min occurs properties...
 			// this extension does not need to be registered globally (in general)
@@ -743,17 +756,17 @@ public class SwaggerParser {
 	}
 	
 	@SuppressWarnings({ "unchecked", "rawtypes" })
-	private static void parseStructureProperties(SwaggerDefinition definition, String name, Map<String, Object> content, DefinedStructure structure, MapContent properties) throws ParseException {
+	private static void parseStructureProperties(SwaggerDefinition definition, String name, Map<String, Object> content, DefinedStructure structure, MapContent properties, Map<String, Type> ongoing) throws ParseException {
 		List<String> required = (List<String>) content.get("required");
 		for (Object key : properties.getContent().keySet()) {
 			MapContent propertyContent = (MapContent) properties.getContent().get(key);
 			String reference = (String) propertyContent.get("$ref");
 			Type childType;
 			if (reference != null) {
-				childType = findType(definition, reference);
+				childType = findType(definition, reference, ongoing);
 			}
 			else {
-				childType = parseDefinedType(definition, (String) key, propertyContent.getContent(), false, false);
+				childType = parseDefinedType(definition, (String) key, propertyContent.getContent(), false, false, ongoing);
 			}
 			if (childType instanceof SimpleType) {
 				structure.add(new SimpleElementImpl((String) key, (SimpleType<?>) childType, structure, new ValueImpl<Integer>(MinOccursProperty.getInstance(), required == null || !required.contains(key) ? 0 : 1)));
