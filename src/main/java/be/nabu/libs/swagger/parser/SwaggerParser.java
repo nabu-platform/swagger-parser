@@ -179,7 +179,7 @@ public class SwaggerParser {
 						}
 						security.setTokenUrl((String) securityContent.getContent().get("tokenUrl"));
 						security.setAuthorizationUrl((String) securityContent.getContent().get("authorizationUrl"));
-						security.setScopes((Map<String, String>) securityContent.getContent().get("scopes"));
+						security.setScopes((Map<String, String>) ((MapContent) securityContent.getContent().get("scopes")).getContent());
 					break;
 				}
 				securities.add(security);
@@ -592,15 +592,16 @@ public class SwaggerParser {
 				structure.setSuperType(parsedDefinedType);
 				if (isRoot) {
 					structure.setNamespace(definition.getId());
+					structure.setName(name);
 					structure.setId(typeId);
 				}
 				else {
 					structure.setName(name);
 					structure.setId(parsedDefinedType instanceof DefinedType ? ((DefinedType) parsedDefinedType).getId() : typeId);
 				}
-				if (isRoot && parsedDefinedType instanceof DefinedType && ((DefinedType) parsedDefinedType).getId().equals(structure.getId())) {
-					throw new ParseException("No unique naming", 0);
-				}
+//				if (isRoot && parsedDefinedType instanceof DefinedType && ((DefinedType) parsedDefinedType).getId().equals(structure.getId())) {
+//					throw new ParseException("No unique naming: " + structure.getId(), 0);
+//				}
 				result = structure;
 			}
 			
@@ -617,37 +618,7 @@ public class SwaggerParser {
 			// note that the "format" is only indicative, there are a few listed formats you should use
 			// but apart from that you can use any format you choose
 			String format = (String) content.get("format");
-			if (type.equals("string")) {
-				if (format == null || format.equals("string") || format.equals("password")) {
-					simpleType = SimpleTypeWrapperFactory.getInstance().getWrapper().wrap(String.class);
-				}
-				// unofficial, added for digipolis
-				else if (format.equals("uri")) {
-					simpleType = SimpleTypeWrapperFactory.getInstance().getWrapper().wrap(URI.class);
-				}
-				else if (format.equals("byte")) {
-					simpleType = SimpleTypeWrapperFactory.getInstance().getWrapper().wrap(byte[].class);
-				}
-				else if (format.equals("binary")) {
-					simpleType = SimpleTypeWrapperFactory.getInstance().getWrapper().wrap(InputStream.class);
-				}
-				else if (format.equals("date")) {
-					simpleType = SimpleTypeWrapperFactory.getInstance().getWrapper().wrap(Date.class);
-					values.add(new ValueImpl<String>(FormatProperty.getInstance(), "date"));
-				}
-				// don't set any additional properties for dateTime, this is the default and we avoid generating some unnecessary simple types
-				else if (format.equals("date-time")) {
-					simpleType = SimpleTypeWrapperFactory.getInstance().getWrapper().wrap(Date.class);
-				}
-				else if (format.equals("uuid")) {
-					simpleType = SimpleTypeWrapperFactory.getInstance().getWrapper().wrap(UUID.class);
-				}
-				else {
-					simpleType = SimpleTypeWrapperFactory.getInstance().getWrapper().wrap(String.class);
-					values.add(new ValueImpl<String>(CommentProperty.getInstance(), "Unsupported Format: " + format));
-				}
-			}
-			else if (type.equals("number")) {
+			if (type.equals("number")) {
 				if (format == null || format.equals("double")) {
 					simpleType = SimpleTypeWrapperFactory.getInstance().getWrapper().wrap(Double.class);
 				}
@@ -683,8 +654,36 @@ public class SwaggerParser {
 			else if (type.equals("file")) {
 				simpleType = SimpleTypeWrapperFactory.getInstance().getWrapper().wrap(InputStream.class);
 			}
-			else {
-				throw new ParseException("Unsupported type: " + type, 0);
+			// we put all unrecognized types into a string as well to be lenient (e.g. the github swagger had a type "null", presumably an error in generation...)
+			else { // if (type.equals("string"))
+				if (!type.equals("string") || format == null || format.equals("string") || format.equals("password")) {
+					simpleType = SimpleTypeWrapperFactory.getInstance().getWrapper().wrap(String.class);
+				}
+				// unofficial, added for digipolis
+				else if (format.equals("uri")) {
+					simpleType = SimpleTypeWrapperFactory.getInstance().getWrapper().wrap(URI.class);
+				}
+				else if (format.equals("byte")) {
+					simpleType = SimpleTypeWrapperFactory.getInstance().getWrapper().wrap(byte[].class);
+				}
+				else if (format.equals("binary")) {
+					simpleType = SimpleTypeWrapperFactory.getInstance().getWrapper().wrap(InputStream.class);
+				}
+				else if (format.equals("date")) {
+					simpleType = SimpleTypeWrapperFactory.getInstance().getWrapper().wrap(Date.class);
+					values.add(new ValueImpl<String>(FormatProperty.getInstance(), "date"));
+				}
+				// don't set any additional properties for dateTime, this is the default and we avoid generating some unnecessary simple types
+				else if (format.equals("date-time")) {
+					simpleType = SimpleTypeWrapperFactory.getInstance().getWrapper().wrap(Date.class);
+				}
+				else if (format.equals("uuid")) {
+					simpleType = SimpleTypeWrapperFactory.getInstance().getWrapper().wrap(UUID.class);
+				}
+				else {
+					simpleType = SimpleTypeWrapperFactory.getInstance().getWrapper().wrap(String.class);
+					values.add(new ValueImpl<String>(CommentProperty.getInstance(), "Unsupported Format: " + format));
+				}
 			}
 			
 			Boolean required = (Boolean) content.get("required");
