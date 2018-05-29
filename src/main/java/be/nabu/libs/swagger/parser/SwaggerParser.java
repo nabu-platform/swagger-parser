@@ -456,7 +456,8 @@ public class SwaggerParser {
 			if (schema.get("$ref") != null) {
 				type = findType(definition, (String) schema.get("$ref"), null);
 			}
-			else if (schema.get("type") != null) {
+			// if it has no type but it does have properties, it is an object
+			else if (schema.get("type") != null || schema.get("properties") != null) {
 				type = parseDefinedType(definition, name, schema.getContent(), false, true, new HashMap<String, Type>());
 			}
 			else {
