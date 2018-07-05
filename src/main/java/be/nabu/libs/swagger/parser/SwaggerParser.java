@@ -1,5 +1,6 @@
 package be.nabu.libs.swagger.parser;
 
+import java.io.BufferedInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.math.BigDecimal;
@@ -20,6 +21,7 @@ import be.nabu.libs.types.base.CollectionFormat;
 import be.nabu.libs.converter.ConverterFactory;
 import be.nabu.libs.property.ValueUtils;
 import be.nabu.libs.property.api.Value;
+import be.nabu.libs.resources.URIUtils;
 import be.nabu.libs.swagger.api.SwaggerDefinition;
 import be.nabu.libs.swagger.api.SwaggerMethod;
 import be.nabu.libs.swagger.api.SwaggerParameter;
@@ -85,6 +87,8 @@ import be.nabu.libs.types.structure.DefinedStructure;
  */
 public class SwaggerParser {
 	
+	private boolean allowRemoteResolving = false;
+	
 	public static void main(String...args) throws IOException {
 		URL url = new URL("https://raw.githubusercontent.com/OAI/OpenAPI-Specification/master/examples/v2.0/json/petstore.json");
 		url = new URL("https://raw.githubusercontent.com/OAI/OpenAPI-Specification/master/examples/v2.0/json/petstore-expanded.json");
@@ -98,19 +102,31 @@ public class SwaggerParser {
 		}
 	}
 	
-	public SwaggerDefinition parse(String id, InputStream input) {
-		JSONBinding binding = new JSONBinding(new MapTypeGenerator(true), Charset.forName("UTF-8"));
-		binding.setAllowDynamicElements(true);
-		binding.setAddDynamicElementDefinitions(true);
-		binding.setAllowRaw(true);
-		binding.setParseNumbers(true);
-		binding.setSetEmptyArrays(true);
+	public MapContent parseJson(String id, InputStream input) {
 		try {
-			SwaggerDefinitionImpl definition = new SwaggerDefinitionImpl(id);
-			MapContent content = (MapContent) binding.unmarshal(input, new Window[0]);
+			JSONBinding binding = new JSONBinding(new MapTypeGenerator(true), Charset.forName("UTF-8"));
+			binding.setAllowDynamicElements(true);
+			binding.setAddDynamicElementDefinitions(true);
+			binding.setAllowRaw(true);
+			binding.setParseNumbers(true);
+			binding.setSetEmptyArrays(true);
+			return (MapContent) binding.unmarshal(input, new Window[0]);
+		}
+		catch (Exception e) {
+			throw new RuntimeException(e);
+		}
+	}
+	
+	public SwaggerDefinition parse(String id, InputStream input) {
+		try {
+			MapContent content = parseJson(id, input);
 			if (!"2.0".equals(content.get("swagger"))) {
 				throw new IllegalArgumentException("Currently only swagger 2.0 is supported");
 			}
+			if (allowRemoteResolving) {
+				resolveRemoteRefs(content);
+			}
+			SwaggerDefinitionImpl definition = new SwaggerDefinitionImpl(id);
 			if (content.get("info") != null) {
 				definition.setInfo(SwaggerInfoImpl.parse((ComplexContent) content.get("info")));
 			}
@@ -129,6 +145,59 @@ public class SwaggerParser {
 		catch (Exception e) {
 			throw new RuntimeException(e);
 		}
+	}
+	
+	public MapContent resolveRemoteRefs(MapContent content) {
+		return resolveRemoteRefs(content, new HashMap<String, MapContent>());
+	}
+	
+	@SuppressWarnings({ "rawtypes", "unchecked" })
+	private MapContent resolveRemoteRefs(MapContent content, Map<String, MapContent> parsed) {
+		Map map = content.getContent();
+		for (Object key : map.keySet()) {
+			Object value = map.get(key);
+			if (key.toString().equals("$ref")) {
+				if (value instanceof String && ((String) value).matches("^[\\w]+:/.*")) {
+					if (!parsed.containsKey(value)) {
+						try {
+							System.out.println("Retrieving: " + value);
+							URL url = new URL(URIUtils.encodeURI((String) value));
+							InputStream stream = new BufferedInputStream(url.openStream());
+							try {
+								JSONBinding binding = new JSONBinding(new MapTypeGenerator(true), Charset.forName("UTF-8"));
+								binding.setAllowDynamicElements(true);
+								binding.setAddDynamicElementDefinitions(true);
+								binding.setAllowRaw(true);
+								binding.setParseNumbers(true);
+								binding.setSetEmptyArrays(true);
+								MapContent childContent = (MapContent) binding.unmarshal(stream, new Window[0]);
+								parsed.put((String) value, childContent);
+								// recursively resolve it
+								resolveRemoteRefs(childContent, parsed);
+							}
+							finally {
+								stream.close();
+							}
+						}
+						catch (Exception e) {
+							throw new RuntimeException(e);
+						}
+					}
+					return parsed.get(value);
+				}
+			}
+			else if (value instanceof MapContent) {
+				map.put(key, resolveRemoteRefs((MapContent) value, parsed));
+			}
+			else if (value instanceof List) {
+				for (int i = 0; i < ((List) value).size(); i++) {
+					if (((List) value).get(i) instanceof MapContent) {
+						((List) value).set(i, resolveRemoteRefs((MapContent) ((List) value).get(i), parsed));
+					}
+				}
+			}
+		}
+		return content;
 	}
 	
 	@SuppressWarnings("unchecked")
@@ -560,14 +629,20 @@ public class SwaggerParser {
 		else if (type.equals("array")) {
 			// the actual type is in "items"
 			MapContent items = (MapContent) content.get("items");
+			
+			Type parsedDefinedType;
+			
+			// if no items are specified, we assume a string array
 			if (items == null) {
-				throw new ParseException("Found an array instance without an items definition for: " + name, 0);
+			//	throw new ParseException("Found an array instance without an items definition for: " + name, 0);
+				parsedDefinedType = SimpleTypeWrapperFactory.getInstance().getWrapper().wrap(String.class);
+			}
+			else {
+				parsedDefinedType = items.get("$ref") == null 
+					? parseDefinedType(definition, name, items.getContent(), false, checkUndefinedRequired, ongoing)
+					: findType(definition, (String) items.get("$ref"), ongoing);
 			}
 			
-			Type parsedDefinedType = items.get("$ref") == null 
-				? parseDefinedType(definition, name, items.getContent(), false, checkUndefinedRequired, ongoing)
-				: findType(definition, (String) items.get("$ref"), ongoing);
-				
 			// we need to extend it to add the fucked up max/min occurs properties...
 			// this extension does not need to be registered globally (in general)
 			// nabu allows for casting in parents to children, so at runtime you can create a parent instance and cast it to the child
@@ -786,6 +861,14 @@ public class SwaggerParser {
 				structure.add(new ComplexElementImpl((String) key, (ComplexType) childType, structure, new ValueImpl<Integer>(MinOccursProperty.getInstance(), required == null || !required.contains(key) ? 0 : 1)));
 			}
 		}
+	}
+
+	public boolean isAllowRemoteResolving() {
+		return allowRemoteResolving;
+	}
+
+	public void setAllowRemoteResolving(boolean allowRemoteResolving) {
+		this.allowRemoteResolving = allowRemoteResolving;
 	}
 	
 }
