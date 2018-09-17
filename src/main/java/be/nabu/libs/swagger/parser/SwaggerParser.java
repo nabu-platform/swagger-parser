@@ -88,6 +88,7 @@ import be.nabu.libs.types.structure.DefinedStructure;
 public class SwaggerParser {
 	
 	private boolean allowRemoteResolving = false;
+	private List<SwaggerSecuritySetting> globalSecurity;
 	
 	public static void main(String...args) throws IOException {
 		URL url = new URL("https://raw.githubusercontent.com/OAI/OpenAPI-Specification/master/examples/v2.0/json/petstore.json");
@@ -133,6 +134,7 @@ public class SwaggerParser {
 			parseInitial(definition, content);
 			parseDefinitions(definition, content);
 			parseSecurityDefinitions(definition, content);
+			definition.setGlobalSecurity(parseSecurity(content));
 			
 			definition.setParameters(parseParameters(definition, (MapContent) content.get("parameters")));
 			
@@ -359,25 +361,45 @@ public class SwaggerParser {
 			
 			// based on example: https://github.com/OAI/OpenAPI-Specification/blob/master/fixtures/v2.0/json/resources/securityExample.json
 			if (methodContent.get("security") != null) {
-				List<Object> securities = (List<Object>) methodContent.get("security");
-				List<SwaggerSecuritySetting> settings = new ArrayList<SwaggerSecuritySetting>();
-				for (Object security : securities) {
-					// not sure if there can ever be more than one security entry per object, this is an odd part of the spec
-					MapContent securityContent = (MapContent) security;
-					for (Object name : securityContent.getContent().keySet()) {
-						SwaggerSecuritySettingImpl impl = new SwaggerSecuritySettingImpl();
-						impl.setName((String) name);
-						impl.setScopes((List<String>) securityContent.getContent().get(name));
-						settings.add(impl);
-					}
-				}
+				List<SwaggerSecuritySetting> settings = parseSecurity(methodContent);
 				if (!settings.isEmpty()) {
 					swaggerMethod.setSecurity(settings);
 				}
 			}
+			// inherit global security
+			else {
+				swaggerMethod.setSecurity(definition.getGlobalSecurity());
+			}
 			methods.add(swaggerMethod);
 		}
 		return methods;
+	}
+	
+	public List<SwaggerSecuritySetting> getGlobalSecurity() {
+		return globalSecurity;
+	}
+
+	public void setGlobalSecurity(List<SwaggerSecuritySetting> globalSecurity) {
+		this.globalSecurity = globalSecurity;
+	}
+
+	@SuppressWarnings("unchecked")
+	private static List<SwaggerSecuritySetting> parseSecurity(MapContent mapContent) {
+		List<Object> securities = (List<Object>) mapContent.get("security");
+		List<SwaggerSecuritySetting> settings = new ArrayList<SwaggerSecuritySetting>();
+		if (securities != null) {
+			for (Object security : securities) {
+				// not sure if there can ever be more than one security entry per object, this is an odd part of the spec
+				MapContent securityContent = (MapContent) security;
+				for (Object name : securityContent.getContent().keySet()) {
+					SwaggerSecuritySettingImpl impl = new SwaggerSecuritySettingImpl();
+					impl.setName((String) name);
+					impl.setScopes((List<String>) securityContent.getContent().get(name));
+					settings.add(impl);
+				}
+			}
+		}
+		return settings;
 	}
 
 	@SuppressWarnings("unchecked")
@@ -544,7 +566,7 @@ public class SwaggerParser {
 			return new ComplexElementImpl(name, (ComplexType) type, null, new ValueImpl(MinOccursProperty.getInstance(), required == null || !required ? 0 : 1));
 		}
 	}
-	
+	// we can't expose inline simple types as defined because you might have a lot with the same name and different (or even the same) values, the name is only the local element
 	// the ongoing allows for circular references to oneself
 	@SuppressWarnings({ "unchecked", "rawtypes" })
 	private static Type parseDefinedType(SwaggerDefinition definition, String name, Map<String, Object> content, boolean isRoot, boolean checkUndefinedRequired, Map<String, Type> ongoing) throws ParseException {

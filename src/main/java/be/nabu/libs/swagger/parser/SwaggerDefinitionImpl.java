@@ -9,6 +9,7 @@ import be.nabu.libs.swagger.api.SwaggerInfo;
 import be.nabu.libs.swagger.api.SwaggerParameter;
 import be.nabu.libs.swagger.api.SwaggerPath;
 import be.nabu.libs.swagger.api.SwaggerSecurityDefinition;
+import be.nabu.libs.swagger.api.SwaggerSecuritySetting;
 import be.nabu.libs.types.api.TypeRegistry;
 
 public class SwaggerDefinitionImpl implements SwaggerDefinition, Artifact {
@@ -22,6 +23,7 @@ public class SwaggerDefinitionImpl implements SwaggerDefinition, Artifact {
 	private List<SwaggerPath> paths;
 	private Map<String, SwaggerParameter> parameters;
 	private List<SwaggerSecurityDefinition> securityDefinitions;
+	private List<SwaggerSecuritySetting> globalSecurity;
 	
 	public SwaggerDefinitionImpl(String id) {
 		this.id = id;
@@ -118,4 +120,12 @@ public class SwaggerDefinitionImpl implements SwaggerDefinition, Artifact {
 	public void setSecurityDefinitions(List<SwaggerSecurityDefinition> securityDefinitions) {
 		this.securityDefinitions = securityDefinitions;
 	}
+
+	public List<SwaggerSecuritySetting> getGlobalSecurity() {
+		return globalSecurity;
+	}
+	public void setGlobalSecurity(List<SwaggerSecuritySetting> globalSecurity) {
+		this.globalSecurity = globalSecurity;
+	}
+	
 }
