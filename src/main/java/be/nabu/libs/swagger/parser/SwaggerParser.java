@@ -89,6 +89,8 @@ public class SwaggerParser {
 	
 	private boolean allowRemoteResolving = false;
 	private List<SwaggerSecuritySetting> globalSecurity;
+	private static boolean propertiesOnElement = true;
+	private Map<String, List<Value<?>>> elementValues;
 	
 	public static void main(String...args) throws IOException {
 		URL url = new URL("https://raw.githubusercontent.com/OAI/OpenAPI-Specification/master/examples/v2.0/json/petstore.json");
@@ -131,8 +133,9 @@ public class SwaggerParser {
 			if (content.get("info") != null) {
 				definition.setInfo(SwaggerInfoImpl.parse((ComplexContent) content.get("info")));
 			}
+			elementValues = new HashMap<String, List<Value<?>>>();
 			parseInitial(definition, content);
-			parseDefinitions(definition, content);
+			parseDefinitions(definition, content, elementValues);
 			parseSecurityDefinitions(definition, content);
 			definition.setGlobalSecurity(parseSecurity(content));
 			
@@ -328,20 +331,29 @@ public class SwaggerParser {
 					MapContent schemaContent = (MapContent) responseContent.get("schema");
 					if (schemaContent != null) {
 						Type type;
+						List<Value<?>> elementValues = new ArrayList<Value<?>>();
 						// it is usually a reference
 						if (schemaContent.get("$ref") != null) {
 							type = findType(definition, (String) schemaContent.get("$ref"), null);
 						}
 						// but it "can" theoretically be a simple type as well, note that this may not work well...
 						else {
-							type = parseDefinedType(definition, "body", schemaContent.getContent(), false, false, new HashMap<String, Type>());
+							type = parseDefinedType(definition, "body", schemaContent.getContent(), false, false, new HashMap<String, Type>(), elementValues);
 //							throw new ParseException("Only supporting array or $ref for responses, found: " + schemaContent.getContent(), 0);
 						}
 						if (type instanceof ComplexType) {
-							response.setElement(new ComplexElementImpl("body", (ComplexType) type, null));
+							ComplexElementImpl element = new ComplexElementImpl("body", (ComplexType) type, null);
+							for (Value<?> value : elementValues) {
+								element.setProperty(value);
+							}
+							response.setElement(element);
 						}
 						else {
-							response.setElement(new SimpleElementImpl("body", (SimpleType<?>) type, null));
+							SimpleElementImpl element = new SimpleElementImpl("body", (SimpleType<?>) type, null);
+							for (Value<?> value : elementValues) {
+								element.setProperty(value);
+							}
+							response.setElement(element);
 						}
 					}
 					MapContent headersContent = (MapContent) responseContent.get("headers");
@@ -424,7 +436,7 @@ public class SwaggerParser {
 	}
 	
 	@SuppressWarnings("unchecked")
-	private static void parseDefinitions(SwaggerDefinitionImpl definition, MapContent content) throws ParseException {
+	private static void parseDefinitions(SwaggerDefinitionImpl definition, MapContent content, Map<String, List<Value<?>>> elementValues) throws ParseException {
 		definition.setRegistry(new TypeRegistryImpl());
 		MapContent definitions = (MapContent) content.get("definitions");
 		if (definitions != null) {
@@ -436,7 +448,9 @@ public class SwaggerParser {
 				failed = new ArrayList<String>();
 				for (Object typeName : toParse) {
 					try {
-						parseDefinedType(definition, (String) typeName, ((MapContent) definitions.getContent().get(typeName)).getContent(), true, false, new HashMap<String, Type>());
+						List<Value<?>> values = new ArrayList<Value<?>>();
+						parseDefinedType(definition, (String) typeName, ((MapContent) definitions.getContent().get(typeName)).getContent(), true, false, new HashMap<String, Type>(), values);
+						elementValues.put((String) typeName, values); 
 					}
 					catch (ParseException e) {
 						// we should repeat
@@ -542,6 +556,7 @@ public class SwaggerParser {
 	private static Element<?> parseParameterElement(SwaggerDefinition definition, Map<String, Object> content) throws ParseException {
 		String name = cleanup((String) content.get("name"));
 		Type type;
+		List<Value<?>> values = new ArrayList<Value<?>>();
 		if (content.get("schema") != null) {
 			MapContent schema = (MapContent) content.get("schema");
 			if (schema.get("$ref") != null) {
@@ -549,34 +564,42 @@ public class SwaggerParser {
 			}
 			// if it has no type but it does have properties, it is an object
 			else if (schema.get("type") != null || schema.get("properties") != null) {
-				type = parseDefinedType(definition, name, schema.getContent(), false, true, new HashMap<String, Type>());
+				type = parseDefinedType(definition, name, schema.getContent(), false, true, new HashMap<String, Type>(), values);
 			}
 			else {
 				throw new ParseException("Unsupported use of schema for element '" + name + "': " + schema, 0);
 			}
 		}
 		else {
-			type = parseDefinedType(definition, name, content, false, true, new HashMap<String, Type>());
+			type = parseDefinedType(definition, name, content, false, true, new HashMap<String, Type>(), values);
 		}
 		Boolean required = (Boolean) content.get("required");
 		if (type instanceof SimpleType) {
-			return new SimpleElementImpl(name, (SimpleType<?>) type, null, new ValueImpl(MinOccursProperty.getInstance(), required == null || !required ? 0 : 1));
+			SimpleElementImpl simpleElementImpl = new SimpleElementImpl(name, (SimpleType<?>) type, null, new ValueImpl(MinOccursProperty.getInstance(), required == null || !required ? 0 : 1));
+			for (Value<?> value : values) {
+				simpleElementImpl.setProperty(value);
+			}
+			return simpleElementImpl;
 		}
 		else {
-			return new ComplexElementImpl(name, (ComplexType) type, null, new ValueImpl(MinOccursProperty.getInstance(), required == null || !required ? 0 : 1));
+			ComplexElementImpl complexElementImpl = new ComplexElementImpl(name, (ComplexType) type, null, new ValueImpl(MinOccursProperty.getInstance(), required == null || !required ? 0 : 1));
+			for (Value<?> value : values) {
+				complexElementImpl.setProperty(value);
+			}
+			return complexElementImpl;
 		}
 	}
 	// we can't expose inline simple types as defined because you might have a lot with the same name and different (or even the same) values, the name is only the local element
 	// the ongoing allows for circular references to oneself
 	@SuppressWarnings({ "unchecked", "rawtypes" })
-	private static Type parseDefinedType(SwaggerDefinition definition, String name, Map<String, Object> content, boolean isRoot, boolean checkUndefinedRequired, Map<String, Type> ongoing) throws ParseException {
+	private static Type parseDefinedType(SwaggerDefinition definition, String name, Map<String, Object> content, boolean isRoot, boolean checkUndefinedRequired, Map<String, Type> ongoing, List<Value<?>> elementValues) throws ParseException {
 		String type = (String) content.get("type");
 		
 		String cleanedUpName = cleanup(name);
 		String typeId = definition.getId() + ".types." + cleanedUpName;
 		List<Value<?>> values = new ArrayList<Value<?>>();
 		
-		ModifiableType result;
+		Type result;
 		// complex type
 		if (type == null || type.equals("object")) {
 			DefinedStructure structure = new DefinedStructure();
@@ -660,55 +683,64 @@ public class SwaggerParser {
 				parsedDefinedType = SimpleTypeWrapperFactory.getInstance().getWrapper().wrap(String.class);
 			}
 			else {
+				// any values inherited from the ref should be set on the element, not the type
 				parsedDefinedType = items.get("$ref") == null 
-					? parseDefinedType(definition, name, items.getContent(), false, checkUndefinedRequired, ongoing)
+					? parseDefinedType(definition, name, items.getContent(), false, checkUndefinedRequired, ongoing, elementValues)
 					: findType(definition, (String) items.get("$ref"), ongoing);
-			}
-			
-			// we need to extend it to add the fucked up max/min occurs properties...
-			// this extension does not need to be registered globally (in general)
-			// nabu allows for casting in parents to children, so at runtime you can create a parent instance and cast it to the child
-			// so this will work transparently...
-			if (parsedDefinedType instanceof Marshallable) {
-				result = new MarshallableSimpleTypeExtension(
-					!isRoot && parsedDefinedType instanceof DefinedType ? ((DefinedType) parsedDefinedType).getId() : typeId, 
-					isRoot ? definition.getId() : null, 
-					name, 
-					(SimpleType) parsedDefinedType
-				);
-			}
-			else if (parsedDefinedType instanceof SimpleType) {
-				result = new SimpleTypeExtension(
-					!isRoot && parsedDefinedType instanceof DefinedType ? ((DefinedType) parsedDefinedType).getId() : typeId, 
-					isRoot ? definition.getId() : null, 
-					name, 
-					(SimpleType) parsedDefinedType
-				);
-			}
-			else {
-				DefinedStructure structure = new DefinedStructure();
-				structure.setSuperType(parsedDefinedType);
-				if (isRoot) {
-					structure.setNamespace(definition.getId());
-					structure.setName(name);
-					structure.setId(typeId);
-				}
-				else {
-					structure.setName(name);
-					structure.setId(parsedDefinedType instanceof DefinedType ? ((DefinedType) parsedDefinedType).getId() : typeId);
-				}
-//				if (isRoot && parsedDefinedType instanceof DefinedType && ((DefinedType) parsedDefinedType).getId().equals(structure.getId())) {
-//					throw new ParseException("No unique naming: " + structure.getId(), 0);
-//				}
-				result = structure;
 			}
 			
 			Number maxOccurs = (Number) content.get("maxItems");
 			Number minOccurs = (Number) content.get("minItems");
 			
-			int defaultMaxOccurs = result instanceof SimpleType && ((SimpleType<?>) result).getInstanceClass().equals(byte[].class) ? 1 : 0;
-			values.add(new ValueImpl<Integer>(MaxOccursProperty.getInstance(), maxOccurs == null ? defaultMaxOccurs : maxOccurs.intValue()));
-			values.add(new ValueImpl<Integer>(MinOccursProperty.getInstance(), minOccurs == null ? 0 : minOccurs.intValue()));
+			int defaultMaxOccurs = parsedDefinedType instanceof SimpleType && ((SimpleType<?>) parsedDefinedType).getInstanceClass().equals(byte[].class) ? 1 : 0;
+			Value<Integer> maxOccursValue = new ValueImpl<Integer>(MaxOccursProperty.getInstance(), maxOccurs == null ? defaultMaxOccurs : maxOccurs.intValue());
+			Value<Integer> minOccursValue = new ValueImpl<Integer>(MinOccursProperty.getInstance(), minOccurs == null ? 0 : minOccurs.intValue());
+			values.add(maxOccursValue);
+			values.add(minOccursValue);
+			
+			if (propertiesOnElement) {
+				result = parsedDefinedType;
+			}
+			else {
+				// we need to extend it to add the fucked up max/min occurs properties...
+				// this extension does not need to be registered globally (in general)
+				// nabu allows for casting in parents to children, so at runtime you can create a parent instance and cast it to the child
+				// so this will work transparently...
+				if (parsedDefinedType instanceof Marshallable) {
+					result = new MarshallableSimpleTypeExtension(
+						!isRoot && parsedDefinedType instanceof DefinedType ? ((DefinedType) parsedDefinedType).getId() : typeId, 
+						isRoot ? definition.getId() : null, 
+						name, 
+						(SimpleType) parsedDefinedType
+					);
+				}
+				else if (parsedDefinedType instanceof SimpleType) {
+					result = new SimpleTypeExtension(
+						!isRoot && parsedDefinedType instanceof DefinedType ? ((DefinedType) parsedDefinedType).getId() : typeId, 
+						isRoot ? definition.getId() : null, 
+						name, 
+						(SimpleType) parsedDefinedType
+					);
+				}
+				else {
+					DefinedStructure structure = new DefinedStructure();
+					structure.setSuperType(parsedDefinedType);
+					if (isRoot) {
+						structure.setNamespace(definition.getId());
+						structure.setName(name);
+						structure.setId(typeId);
+					}
+					else {
+						structure.setName(name);
+						structure.setId(parsedDefinedType instanceof DefinedType ? ((DefinedType) parsedDefinedType).getId() : typeId);
+					}
+	//				if (isRoot && parsedDefinedType instanceof DefinedType && ((DefinedType) parsedDefinedType).getId().equals(structure.getId())) {
+	//					throw new ParseException("No unique naming: " + structure.getId(), 0);
+	//				}
+					result = structure;
+				}
+			
+			}
 		}
 		// simple type
 		else {
@@ -791,7 +823,12 @@ public class SwaggerParser {
 				values.add(new ValueImpl<Integer>(MinOccursProperty.getInstance(), 0));
 			}
 			
-			result = new MarshallableSimpleTypeExtension(typeId, isRoot ? definition.getId() : null, name, simpleType);
+			if (propertiesOnElement) {
+				result = simpleType;
+			}
+			else {
+				result = new MarshallableSimpleTypeExtension(typeId, isRoot ? definition.getId() : null, name, simpleType);
+			}
 		}
 		
 		if (isRoot) {
@@ -842,13 +879,19 @@ public class SwaggerParser {
 			values.add(new ValueImpl(PatternProperty.getInstance(), pattern));
 		}
 		
-		// if we have a simple type with no additional settings and it is not a root definition, unwrap it to the original simple type
-		if (values.isEmpty() && !isRoot && result instanceof SimpleType) {
-			return result.getSuperType();
+		if (propertiesOnElement) {
+			elementValues.addAll(values);
+			return result;
 		}
 		else {
-			result.setProperty(values.toArray(new Value[values.size()]));
-			return result;
+			// if we have a simple type with no additional settings and it is not a root definition, unwrap it to the original simple type
+			if (values.isEmpty() && !isRoot && result instanceof SimpleType) {
+				return result.getSuperType();
+			}
+			else {
+				((ModifiableType) result).setProperty(values.toArray(new Value[values.size()]));
+				return result;
+			}
 		}
 	}
 	
@@ -859,11 +902,12 @@ public class SwaggerParser {
 			MapContent propertyContent = (MapContent) properties.getContent().get(key);
 			String reference = (String) propertyContent.get("$ref");
 			Type childType;
+			List<Value<?>> elementValues = new ArrayList<Value<?>>();
 			if (reference != null) {
 				childType = findType(definition, reference, ongoing);
 			}
 			else {
-				childType = parseDefinedType(definition, (String) key, propertyContent.getContent(), false, false, ongoing);
+				childType = parseDefinedType(definition, (String) key, propertyContent.getContent(), false, false, ongoing, elementValues);
 			}
 			if (childType instanceof SimpleType) {
 				structure.add(new SimpleElementImpl((String) key, (SimpleType<?>) childType, structure, new ValueImpl<Integer>(MinOccursProperty.getInstance(), required == null || !required.contains(key) ? 0 : 1)));
@@ -872,15 +916,24 @@ public class SwaggerParser {
 			// ideally the parseDefinedType should probably be updated to parseElement or something so we don't need to extend types to transfer information...
 			else if (childType instanceof ComplexType && TypeUtils.getAllChildren((ComplexType) childType).isEmpty() && ((ComplexType) childType).getSuperType() instanceof BeanType && ((BeanType<?>) ((ComplexType) childType).getSuperType()).getBeanClass().equals(Object.class)) {
 				ComplexElementImpl element = new ComplexElementImpl((String) key, (ComplexType) childType.getSuperType(), structure, new ValueImpl<Integer>(MinOccursProperty.getInstance(), required == null || !required.contains(key) ? 0 : 1));
-				// inherit properties like maxOccurs
-				Integer maxOccurs = ValueUtils.getValue(MaxOccursProperty.getInstance(), childType.getProperties());
-				if (maxOccurs != null) {
-					element.setProperty(new ValueImpl<Integer>(MaxOccursProperty.getInstance(), maxOccurs));
+				for (Value<?> value : elementValues) {
+					element.setProperty(value);
+				}
+				if (!propertiesOnElement) {
+					// inherit properties like maxOccurs
+					Integer maxOccurs = ValueUtils.getValue(MaxOccursProperty.getInstance(), childType.getProperties());
+					if (maxOccurs != null) {
+						element.setProperty(new ValueImpl<Integer>(MaxOccursProperty.getInstance(), maxOccurs));
+					}
 				}
 				structure.add(element);				
 			}
 			else {
-				structure.add(new ComplexElementImpl((String) key, (ComplexType) childType, structure, new ValueImpl<Integer>(MinOccursProperty.getInstance(), required == null || !required.contains(key) ? 0 : 1)));
+				ComplexElementImpl element = new ComplexElementImpl((String) key, (ComplexType) childType, structure, new ValueImpl<Integer>(MinOccursProperty.getInstance(), required == null || !required.contains(key) ? 0 : 1));
+				for (Value<?> value : elementValues) {
+					element.setProperty(value);
+				}
+				structure.add(element);
 			}
 		}
 	}
