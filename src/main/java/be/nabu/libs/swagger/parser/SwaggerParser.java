@@ -455,19 +455,26 @@ public class SwaggerParser {
 		}
 	}
 	
-	public static boolean isValid(char character, boolean first) {
+	public static boolean isValid(char character, boolean first, boolean last) {
 		// dots are also allowed for namespacing
-		return (!first && character >= 48 && character <= 57) || (!first && character == 46) || (character >= 65 && character <= 90) || (character >= 97 && character <= 122); 
+		return (!first && character >= 48 && character <= 57) || (!first && !last && character == 46) || (character >= 65 && character <= 90) || (character >= 97 && character <= 122); 
 	}
 	
 	public static String cleanup(String name) {
 		StringBuilder builder = new StringBuilder();
 		boolean uppercase = false;
 		for (int i = 0; i < name.length(); i++) {
-			if (builder.toString().isEmpty() && isValid(name.charAt(i), true)) {
-				builder.append(name.substring(i, i + 1).toLowerCase());
+			if (builder.toString().isEmpty()) {
+				if (isValid(name.charAt(i), true, i == name.length() - 1)) {
+					builder.append(name.substring(i, i + 1).toLowerCase());
+				}
 			}
-			else if (isValid(name.charAt(i), false)) {
+			else if (i == name.length() - 1) {
+				if (isValid(name.charAt(i), false, true)) {
+					builder.append(name.substring(i, i + 1));
+				}
+			}
+			else if (isValid(name.charAt(i), false, false)) {
 				if (uppercase) {
 					builder.append(name.substring(i, i + 1).toUpperCase());
 					uppercase = false;
