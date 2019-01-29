@@ -15,6 +15,7 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.TimeZone;
 import java.util.UUID;
 
 import be.nabu.libs.types.base.CollectionFormat;
@@ -65,6 +66,7 @@ import be.nabu.libs.types.properties.MinInclusiveProperty;
 import be.nabu.libs.types.properties.MinLengthProperty;
 import be.nabu.libs.types.properties.MinOccursProperty;
 import be.nabu.libs.types.properties.PatternProperty;
+import be.nabu.libs.types.properties.TimezoneProperty;
 import be.nabu.libs.types.structure.DefinedStructure;
 
 /** in theory there is a descriminator field where you could have (as far as I can tell):
@@ -86,7 +88,8 @@ import be.nabu.libs.types.structure.DefinedStructure;
  The petType must also be in the list of properties of the type _and_ be in the required list.
  */
 public class SwaggerParser {
-	
+
+	private TimeZone timezone;
 	private boolean allowRemoteResolving = false;
 	private List<SwaggerSecuritySetting> globalSecurity;
 	
@@ -203,7 +206,7 @@ public class SwaggerParser {
 	}
 	
 	@SuppressWarnings("unchecked")
-	private static Map<String, SwaggerParameter> parseParameters(SwaggerDefinition definition, MapContent content) throws ParseException {
+	private Map<String, SwaggerParameter> parseParameters(SwaggerDefinition definition, MapContent content) throws ParseException {
 		Map<String, SwaggerParameter> parameters = new HashMap<String, SwaggerParameter>();
 		if (content != null) {
 			for (String key : ((Map<String, Object>) content.getContent()).keySet()) {
@@ -215,7 +218,7 @@ public class SwaggerParser {
 	}
 	
 	@SuppressWarnings("unchecked")
-	private static Map<String, SwaggerParameter> parseParameters(SwaggerDefinition definition, List<MapContent> content) throws ParseException {
+	private Map<String, SwaggerParameter> parseParameters(SwaggerDefinition definition, List<MapContent> content) throws ParseException {
 		Map<String, SwaggerParameter> parameters = new HashMap<String, SwaggerParameter>();
 		if (content != null) {
 			for (MapContent single : content) {
@@ -259,7 +262,7 @@ public class SwaggerParser {
 		}
 	}
 	
-	private static List<SwaggerPath> parsePaths(SwaggerDefinitionImpl definition, MapContent content) throws ParseException {
+	private List<SwaggerPath> parsePaths(SwaggerDefinitionImpl definition, MapContent content) throws ParseException {
 		List<SwaggerPath> paths = new ArrayList<SwaggerPath>();
 		for (Object path : content.getContent().keySet()) {
 			SwaggerPathImpl swaggerPath = new SwaggerPathImpl();
@@ -274,7 +277,7 @@ public class SwaggerParser {
 	}
 	
 	@SuppressWarnings({ "unchecked", "rawtypes" })
-	private static List<SwaggerMethod> parseMethods(SwaggerDefinitionImpl definition, MapContent content) throws ParseException {
+	private List<SwaggerMethod> parseMethods(SwaggerDefinitionImpl definition, MapContent content) throws ParseException {
 		List<SwaggerMethod> methods = new ArrayList<SwaggerMethod>();
 		
 		Map<String, SwaggerParameter> inheritedParameters = parseParameters(definition, (List<MapContent>) content.getContent().get("parameters"));
@@ -384,7 +387,7 @@ public class SwaggerParser {
 	}
 
 	@SuppressWarnings("unchecked")
-	private static List<SwaggerSecuritySetting> parseSecurity(MapContent mapContent) {
+	private List<SwaggerSecuritySetting> parseSecurity(MapContent mapContent) {
 		List<Object> securities = (List<Object>) mapContent.get("security");
 		List<SwaggerSecuritySetting> settings = new ArrayList<SwaggerSecuritySetting>();
 		if (securities != null) {
@@ -403,7 +406,7 @@ public class SwaggerParser {
 	}
 
 	@SuppressWarnings("unchecked")
-	private static Map<String, Object> parseExtensions(MapContent methodContent) {
+	private Map<String, Object> parseExtensions(MapContent methodContent) {
 		Map<String, Object> extensions = new HashMap<String, Object>();
 		for (String key : ((Map<String, ?>) methodContent.getContent()).keySet()) {
 			if (key.startsWith("x-")) {
@@ -414,7 +417,7 @@ public class SwaggerParser {
 	}
 
 	@SuppressWarnings("unchecked")
-	private static void parseInitial(SwaggerDefinitionImpl definition, MapContent content) {
+	private void parseInitial(SwaggerDefinitionImpl definition, MapContent content) {
 		definition.setVersion((String) content.get("swagger"));
 		definition.setHost((String) content.get("host"));
 		definition.setBasePath((String) content.get("basePath"));
@@ -424,7 +427,7 @@ public class SwaggerParser {
 	}
 	
 	@SuppressWarnings("unchecked")
-	private static void parseDefinitions(SwaggerDefinitionImpl definition, MapContent content) throws ParseException {
+	private void parseDefinitions(SwaggerDefinitionImpl definition, MapContent content) throws ParseException {
 		definition.setRegistry(new TypeRegistryImpl());
 		MapContent definitions = (MapContent) content.get("definitions");
 		if (definitions != null) {
@@ -490,7 +493,7 @@ public class SwaggerParser {
 		return builder.toString();
 	}
 	
-	private static Type findType(SwaggerDefinition definition, String name, Map<String, Type> ongoing) throws ParseException {
+	private Type findType(SwaggerDefinition definition, String name, Map<String, Type> ongoing) throws ParseException {
 		if (name.startsWith("#/definitions/")) {
 			name = name.substring("#/definitions/".length());
 		}
@@ -517,7 +520,7 @@ public class SwaggerParser {
 		return type;
 	}
 	
-	private static SwaggerParameter parseParameter(SwaggerDefinition definition, Map<String, Object> content) throws ParseException {
+	private SwaggerParameter parseParameter(SwaggerDefinition definition, Map<String, Object> content) throws ParseException {
 		if (content.containsKey("$ref")) {
 			SwaggerParameter swaggerParameter = ((SwaggerDefinitionImpl) definition).getParameters().get(content.get("$ref").toString().substring("#/parameters/".length()));
 			if (swaggerParameter == null) {
@@ -546,7 +549,7 @@ public class SwaggerParser {
 	}
 	
 	@SuppressWarnings({ "unchecked", "rawtypes" })
-	private static Element<?> parseParameterElement(SwaggerDefinition definition, Map<String, Object> content) throws ParseException {
+	private Element<?> parseParameterElement(SwaggerDefinition definition, Map<String, Object> content) throws ParseException {
 		String name = cleanup((String) content.get("name"));
 		Type type;
 		if (content.get("schema") != null) {
@@ -576,7 +579,7 @@ public class SwaggerParser {
 	// we can't expose inline simple types as defined because you might have a lot with the same name and different (or even the same) values, the name is only the local element
 	// the ongoing allows for circular references to oneself
 	@SuppressWarnings({ "unchecked", "rawtypes" })
-	private static Type parseDefinedType(SwaggerDefinition definition, String name, Map<String, Object> content, boolean isRoot, boolean checkUndefinedRequired, Map<String, Type> ongoing) throws ParseException {
+	private Type parseDefinedType(SwaggerDefinition definition, String name, Map<String, Object> content, boolean isRoot, boolean checkUndefinedRequired, Map<String, Type> ongoing) throws ParseException {
 		String type = (String) content.get("type");
 		
 		String cleanedUpName = cleanup(name);
@@ -777,10 +780,16 @@ public class SwaggerParser {
 				else if (format.equals("date")) {
 					simpleType = SimpleTypeWrapperFactory.getInstance().getWrapper().wrap(Date.class);
 					values.add(new ValueImpl<String>(FormatProperty.getInstance(), "date"));
+					if (timezone != null) {
+						values.add(new ValueImpl<TimeZone>(TimezoneProperty.getInstance(), timezone));
+					}
 				}
 				// don't set any additional properties for dateTime, this is the default and we avoid generating some unnecessary simple types
 				else if (format.equals("date-time")) {
 					simpleType = SimpleTypeWrapperFactory.getInstance().getWrapper().wrap(Date.class);
+					if (timezone != null) {
+						values.add(new ValueImpl<TimeZone>(TimezoneProperty.getInstance(), timezone));
+					}
 				}
 				else if (format.equals("uuid")) {
 					simpleType = SimpleTypeWrapperFactory.getInstance().getWrapper().wrap(UUID.class);
@@ -860,7 +869,7 @@ public class SwaggerParser {
 	}
 	
 	@SuppressWarnings({ "unchecked", "rawtypes" })
-	private static void parseStructureProperties(SwaggerDefinition definition, String name, Map<String, Object> content, DefinedStructure structure, MapContent properties, Map<String, Type> ongoing) throws ParseException {
+	private void parseStructureProperties(SwaggerDefinition definition, String name, Map<String, Object> content, DefinedStructure structure, MapContent properties, Map<String, Type> ongoing) throws ParseException {
 		List<String> required = (List<String>) content.get("required");
 		for (Object key : properties.getContent().keySet()) {
 			MapContent propertyContent = (MapContent) properties.getContent().get(key);
@@ -899,5 +908,13 @@ public class SwaggerParser {
 	public void setAllowRemoteResolving(boolean allowRemoteResolving) {
 		this.allowRemoteResolving = allowRemoteResolving;
 	}
-	
+
+	public TimeZone getTimezone() {
+		return timezone;
+	}
+
+	public void setTimezone(TimeZone timezone) {
+		this.timezone = timezone;
+	}
+
 }
