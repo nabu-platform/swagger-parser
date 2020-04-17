@@ -269,7 +269,7 @@ public class SwaggerParser {
 			swaggerPath.setPath((String) path);
 			MapContent methodMap = (MapContent) content.get((String) path);
 			if (methodMap != null) {
-				swaggerPath.setMethods(parseMethods(definition, methodMap));
+				swaggerPath.setMethods(parseMethods(swaggerPath, definition, methodMap));
 			}
 			paths.add(swaggerPath);
 		}
@@ -277,7 +277,7 @@ public class SwaggerParser {
 	}
 	
 	@SuppressWarnings({ "unchecked", "rawtypes" })
-	private List<SwaggerMethod> parseMethods(SwaggerDefinitionImpl definition, MapContent content) throws ParseException {
+	private List<SwaggerMethod> parseMethods(SwaggerPathImpl path, SwaggerDefinitionImpl definition, MapContent content) throws ParseException {
 		List<SwaggerMethod> methods = new ArrayList<SwaggerMethod>();
 		
 		Map<String, SwaggerParameter> inheritedParameters = parseParameters(definition, (List<MapContent>) content.getContent().get("parameters"));
@@ -297,6 +297,10 @@ public class SwaggerParser {
 			swaggerMethod.setTags((List<String>) methodContent.get("tags"));
 			swaggerMethod.setDeprecated((Boolean) methodContent.get("deprecated"));
 			swaggerMethod.setExtensions(parseExtensions(methodContent));
+			
+			// make sure we always have an operation id, even if it is a fictive one
+			// we need it to make sure that we can describe the methods (e.g. for whitelisting)
+			cleanupOperationId(path, swaggerMethod);
 			
 			if (methodContent.get("documentation") != null) {
 				swaggerMethod.setDocumentation(SwaggerDocumentationImpl.parse((ComplexContent) methodContent.get("documentation")));
@@ -461,6 +465,10 @@ public class SwaggerParser {
 	public static boolean isValid(char character, boolean first, boolean last) {
 		// dots are also allowed for namespacing
 		return (!first && character >= 48 && character <= 57) || (!first && !last && character == 46) || (character >= 65 && character <= 90) || (character >= 97 && character <= 122); 
+	}
+	
+	private static void cleanupOperationId(SwaggerPath path, SwaggerMethodImpl method) {
+		method.setOperationId(SwaggerParser.cleanup(method.getOperationId() == null ? method.getMethod() + path.getPath(): method.getOperationId()));
 	}
 	
 	public static String cleanup(String name) {
