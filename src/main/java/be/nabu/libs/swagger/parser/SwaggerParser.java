@@ -124,9 +124,6 @@ public class SwaggerParser {
 	public SwaggerDefinition parse(String id, InputStream input) {
 		try {
 			MapContent content = parseJson(id, input);
-			if (!"2.0".equals(content.get("swagger"))) {
-				throw new IllegalArgumentException("Currently only swagger 2.0 is supported");
-			}
 			if (allowRemoteResolving) {
 				resolveRemoteRefs(content);
 			}
@@ -422,12 +419,30 @@ public class SwaggerParser {
 
 	@SuppressWarnings("unchecked")
 	private void parseInitial(SwaggerDefinitionImpl definition, MapContent content) {
-		definition.setVersion((String) content.get("swagger"));
+		if ("2.0".equals(content.get("swagger"))) {
+			definition.setDefinitionType("swagger");
+			definition.setVersion((String) content.get("swagger"));	
+		}
+		else if ("3.0.0".equals(content.get("openapi"))) {
+			definition.setDefinitionType("openapi");
+			definition.setVersion((String) content.get("openapi"));
+		}
+		else {
+			throw new IllegalArgumentException("Currently only swagger 2.0 and openapi 3.0.0 are supported");
+		}
 		definition.setHost((String) content.get("host"));
 		definition.setBasePath((String) content.get("basePath"));
 		definition.setSchemes((List<String>) content.get("schemes"));
 		definition.setConsumes((List<String>) content.get("consumes"));
 		definition.setProduces((List<String>) content.get("produces"));
+	}
+	
+	private void parseComponents(SwaggerDefinitionImpl definition, MapContent content) throws ParseException {
+		definition.setRegistry(new TypeRegistryImpl());
+		MapContent components = (MapContent) content.get("components");
+		if (components != null) {
+			
+		}
 	}
 	
 	@SuppressWarnings("unchecked")
@@ -462,9 +477,12 @@ public class SwaggerParser {
 		}
 	}
 	
-	public static boolean isValid(char character, boolean first, boolean last) {
+	public static boolean isValid(char character, boolean first, boolean last, boolean allowDots) {
+		if (!allowDots && character == '.') {
+			return false;
+		}
 		// dots are also allowed for namespacing
-		return (!first && character >= 48 && character <= 57) || (!first && !last && character == 46) || (character >= 65 && character <= 90) || (character >= 97 && character <= 122); 
+		return (!first && character >= 48 && character <= 57) || (!first && !last && character == 46) || (character >= 65 && character <= 90) || (character >= 97 && character <= 122);
 	}
 	
 	private static void cleanupOperationId(SwaggerPath path, SwaggerMethodImpl method) {
@@ -472,20 +490,24 @@ public class SwaggerParser {
 	}
 	
 	public static String cleanup(String name) {
+		return cleanup(name, true);
+	}
+	
+	public static String cleanup(String name, boolean allowDots) {
 		StringBuilder builder = new StringBuilder();
 		boolean uppercase = false;
 		for (int i = 0; i < name.length(); i++) {
 			if (builder.toString().isEmpty()) {
-				if (isValid(name.charAt(i), true, i == name.length() - 1)) {
+				if (isValid(name.charAt(i), true, i == name.length() - 1, allowDots)) {
 					builder.append(name.substring(i, i + 1).toLowerCase());
 				}
 			}
 			else if (i == name.length() - 1) {
-				if (isValid(name.charAt(i), false, true)) {
+				if (isValid(name.charAt(i), false, true, allowDots)) {
 					builder.append(name.substring(i, i + 1));
 				}
 			}
-			else if (isValid(name.charAt(i), false, false)) {
+			else if (isValid(name.charAt(i), false, false, allowDots)) {
 				if (uppercase) {
 					builder.append(name.substring(i, i + 1).toUpperCase());
 					uppercase = false;

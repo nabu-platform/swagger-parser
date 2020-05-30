@@ -14,6 +14,7 @@ import be.nabu.libs.types.api.TypeRegistry;
 
 public class SwaggerDefinitionImpl implements SwaggerDefinition, Artifact {
 
+	private String definitionType = "swagger";
 	private String version = "2.0";
 	private String host, basePath;
 	private List<String> schemes, consumes, produces;
@@ -126,6 +127,14 @@ public class SwaggerDefinitionImpl implements SwaggerDefinition, Artifact {
 	}
 	public void setGlobalSecurity(List<SwaggerSecuritySetting> globalSecurity) {
 		this.globalSecurity = globalSecurity;
+	}
+
+	@Override
+	public String getDefinitionType() {
+		return definitionType;
+	}
+	public void setDefinitionType(String definitionType) {
+		this.definitionType = definitionType;
 	}
 	
 }
