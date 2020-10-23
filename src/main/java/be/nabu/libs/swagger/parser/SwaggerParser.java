@@ -50,6 +50,7 @@ import be.nabu.libs.types.base.SimpleElementImpl;
 import be.nabu.libs.types.base.ValueImpl;
 import be.nabu.libs.types.binding.api.Window;
 import be.nabu.libs.types.binding.json.JSONBinding;
+import be.nabu.libs.types.java.BeanResolver;
 import be.nabu.libs.types.java.BeanType;
 import be.nabu.libs.types.map.MapContent;
 import be.nabu.libs.types.map.MapTypeGenerator;
@@ -68,6 +69,8 @@ import be.nabu.libs.types.properties.MinOccursProperty;
 import be.nabu.libs.types.properties.PatternProperty;
 import be.nabu.libs.types.properties.TimezoneProperty;
 import be.nabu.libs.types.structure.DefinedStructure;
+import be.nabu.libs.validator.api.ValidationMessage;
+import be.nabu.libs.validator.api.ValidationMessage.Severity;
 
 /** in theory there is a descriminator field where you could have (as far as I can tell):
  Animal:
@@ -92,6 +95,9 @@ public class SwaggerParser {
 	private TimeZone timezone;
 	private boolean allowRemoteResolving = false;
 	private List<SwaggerSecuritySetting> globalSecurity;
+	private List<String> missingRefs = new ArrayList<String>();
+	// too many swaggers are invalid, let's attempt to support them...
+	private boolean allowInvalidSwagger = true;
 	
 	public static void main(String...args) throws IOException {
 		URL url = new URL("https://raw.githubusercontent.com/OAI/OpenAPI-Specification/master/examples/v2.0/json/petstore.json");
@@ -109,6 +115,9 @@ public class SwaggerParser {
 	public MapContent parseJson(String id, InputStream input) {
 		try {
 			JSONBinding binding = new JSONBinding(new MapTypeGenerator(true), Charset.forName("UTF-8"));
+			// we are not interested in comment sections that don't follow decent structures
+			// regular swagger should be properly structured
+			binding.setIgnoreInconsistentTypes(true);
 			binding.setAllowDynamicElements(true);
 			binding.setAddDynamicElementDefinitions(true);
 			binding.setAllowRaw(true);
@@ -124,6 +133,10 @@ public class SwaggerParser {
 	public SwaggerDefinition parse(String id, InputStream input) {
 		try {
 			MapContent content = parseJson(id, input);
+			List<ValidationMessage> validate = validate(content);
+			if (!validate.isEmpty() && !allowInvalidSwagger) {
+				throw new IllegalArgumentException("The swagger is invalid: " + validate);
+			}
 			if (allowRemoteResolving) {
 				resolveRemoteRefs(content);
 			}
@@ -146,6 +159,35 @@ public class SwaggerParser {
 		}
 		catch (Exception e) {
 			throw new RuntimeException(e);
+		}
+	}
+	
+	private List<ValidationMessage> validate(MapContent root) {
+		missingRefs.clear();
+		Map map = root.getContent();
+		List<ValidationMessage> messages = new ArrayList<ValidationMessage>();
+		validate(root, root, messages);
+		return messages;
+	}
+	
+	private void validate(MapContent root, MapContent current, List<ValidationMessage> messages) {
+		Map map = current.getContent();
+		MapContent definitions = (MapContent) root.get("definitions");
+		for (Object key : map.entrySet()) {
+			Map.Entry entry = ((Map.Entry) key);
+			if (entry.getKey().equals("$ref")) {
+				String name = entry.getValue().toString();
+				if (name.startsWith("#/definitions/")) {
+					name = name.substring("#/definitions/".length());
+				}
+				if (definitions.get(name) == null) {
+					messages.add(new ValidationMessage(Severity.ERROR, "Could not resolve reference: " + entry.getValue()));
+					missingRefs.add(name);
+				}
+			}
+			else if (entry.getValue() instanceof MapContent) {
+				validate(root, (MapContent) entry.getValue(), messages);
+			}
 		}
 	}
 	
@@ -545,7 +587,15 @@ public class SwaggerParser {
 			}
 		}
 		if (type == null) {
-			throw new ParseException("Can not resolve type: " + name, 1);
+			// if it was listed as missing, don't bother retrying
+			// we can either not list it at all, or we return java.lang.Object, allowing for freestyle stuff...
+			if (missingRefs.contains(name) && allowInvalidSwagger) {
+				type = BeanResolver.getInstance().resolve(Object.class);
+			}
+			// throw an exception to retry later, it can be an ordering issue
+			else {
+				throw new ParseException("Can not resolve type: " + name, 1);
+			}
 		}
 		return type;
 	}
