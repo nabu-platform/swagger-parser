@@ -11,6 +11,7 @@ import be.nabu.libs.swagger.api.SwaggerPath;
 import be.nabu.libs.swagger.api.SwaggerSecurityDefinition;
 import be.nabu.libs.swagger.api.SwaggerSecuritySetting;
 import be.nabu.libs.types.api.TypeRegistry;
+import be.nabu.libs.validator.api.ValidationMessage;
 
 public class SwaggerDefinitionImpl implements SwaggerDefinition, Artifact {
 
@@ -25,6 +26,7 @@ public class SwaggerDefinitionImpl implements SwaggerDefinition, Artifact {
 	private Map<String, SwaggerParameter> parameters;
 	private List<SwaggerSecurityDefinition> securityDefinitions;
 	private List<SwaggerSecuritySetting> globalSecurity;
+	private List<ValidationMessage> messages;
 	
 	public SwaggerDefinitionImpl(String id) {
 		this.id = id;
@@ -136,5 +138,12 @@ public class SwaggerDefinitionImpl implements SwaggerDefinition, Artifact {
 	public void setDefinitionType(String definitionType) {
 		this.definitionType = definitionType;
 	}
-	
+
+	public List<ValidationMessage> getValidationMessages() {
+		return messages;
+	}
+	public void setValidationMessages(List<ValidationMessage> messages) {
+		this.messages = messages;
+	}
+
 }

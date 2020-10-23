@@ -96,8 +96,10 @@ public class SwaggerParser {
 	private boolean allowRemoteResolving = false;
 	private List<SwaggerSecuritySetting> globalSecurity;
 	private List<String> missingRefs = new ArrayList<String>();
-	// too many swaggers are invalid, let's attempt to support them...
+	// too many swaggers are invalid, let's attempt to support them. for example if types are not defined, use java.lang.Object as a fallback
 	private boolean allowInvalidSwagger = true;
+	// prepulate complex types to allow for circular references
+	private boolean usePrepulation = true;
 	
 	public static void main(String...args) throws IOException {
 		URL url = new URL("https://raw.githubusercontent.com/OAI/OpenAPI-Specification/master/examples/v2.0/json/petstore.json");
@@ -133,14 +135,17 @@ public class SwaggerParser {
 	public SwaggerDefinition parse(String id, InputStream input) {
 		try {
 			MapContent content = parseJson(id, input);
+			SwaggerDefinitionImpl definition = new SwaggerDefinitionImpl(id);
 			List<ValidationMessage> validate = validate(content);
 			if (!validate.isEmpty() && !allowInvalidSwagger) {
 				throw new IllegalArgumentException("The swagger is invalid: " + validate);
 			}
+			else {
+				definition.setValidationMessages(validate);
+			}
 			if (allowRemoteResolving) {
 				resolveRemoteRefs(content);
 			}
-			SwaggerDefinitionImpl definition = new SwaggerDefinitionImpl(id);
 			if (content.get("info") != null) {
 				definition.setInfo(SwaggerInfoImpl.parse((ComplexContent) content.get("info")));
 			}
@@ -180,7 +185,7 @@ public class SwaggerParser {
 				if (name.startsWith("#/definitions/")) {
 					name = name.substring("#/definitions/".length());
 				}
-				if (definitions.get(name) == null) {
+				if (definitions == null || definitions.get(name) == null) {
 					messages.add(new ValidationMessage(Severity.ERROR, "Could not resolve reference: " + entry.getValue()));
 					missingRefs.add(name);
 				}
@@ -490,6 +495,9 @@ public class SwaggerParser {
 	@SuppressWarnings("unchecked")
 	private void parseDefinitions(SwaggerDefinitionImpl definition, MapContent content) throws ParseException {
 		definition.setRegistry(new TypeRegistryImpl());
+		if (usePrepulation) {
+			prepopulateTypes(definition, content);
+		}
 		MapContent definitions = (MapContent) content.get("definitions");
 		if (definitions != null) {
 			List<String> previousFailed = null;
@@ -656,6 +664,40 @@ public class SwaggerParser {
 			return new ComplexElementImpl(name, (ComplexType) type, null, new ValueImpl(MinOccursProperty.getInstance(), required == null || !required ? 0 : 1));
 		}
 	}
+	
+	// to allow for circular references, we add an empty definition at the root, a placeholder
+	// TODO: currently we don't prepopulate the simple types and arrays
+	// simple types likely won't have circular references
+	// arrays might, but root arrays are a rare thing, and we need more resolving to set a proper type
+	// for now, we support the biggest usecase: complex types with circular references
+	private void prepopulateTypes(SwaggerDefinition definition, MapContent root) {
+		MapContent definitions = (MapContent) root.get("definitions");
+		if (definitions != null) {
+			for (Object key : definitions.getContent().entrySet()) {
+				Map.Entry entry = ((Map.Entry) key);
+				MapContent content = (MapContent) entry.getValue();
+				String type = (String) content.get("type");
+				
+				ModifiableType result = null;
+				if (type == null || type.equals("object")) {
+					String cleanedUpName = cleanup(entry.getKey().toString());
+					String typeId = definition.getId() + ".types." + cleanedUpName;
+					DefinedStructure structure = new DefinedStructure();
+					structure.setNamespace(definition.getId());
+					structure.setName(entry.getKey().toString());
+					structure.setId(typeId);
+					result = structure;
+				}
+				if (result instanceof SimpleType) {
+					((ModifiableTypeRegistry) definition.getRegistry()).register((SimpleType<?>) result);
+				}
+				else if (result instanceof ComplexType) {
+					((ModifiableTypeRegistry) definition.getRegistry()).register((ComplexType) result);
+				}
+			}
+		}
+	}
+	
 	// we can't expose inline simple types as defined because you might have a lot with the same name and different (or even the same) values, the name is only the local element
 	// the ongoing allows for circular references to oneself
 	@SuppressWarnings({ "unchecked", "rawtypes" })
@@ -665,16 +707,26 @@ public class SwaggerParser {
 		String cleanedUpName = cleanup(name);
 		String typeId = definition.getId() + ".types." + cleanedUpName;
 		List<Value<?>> values = new ArrayList<Value<?>>();
-		
+
+		boolean alreadyRegistered = false;
 		ModifiableType result;
 		// complex type
 		if (type == null || type.equals("object")) {
-			DefinedStructure structure = new DefinedStructure();
-			if (isRoot) {
-				structure.setNamespace(definition.getId());
+			// we resolve from the registry just in case we registered it before through prepopulation
+			DefinedStructure structure;
+			
+			if (isRoot && definition.getRegistry().getComplexType(definition.getId(), name) != null) {
+				structure = (DefinedStructure) definition.getRegistry().getComplexType(definition.getId(), name);
+				alreadyRegistered = true;
 			}
-			structure.setName(name);
-			structure.setId(typeId);
+			else {
+				structure = new DefinedStructure();
+				if (isRoot) {
+					structure.setNamespace(definition.getId());
+				}
+				structure.setName(name);
+				structure.setId(typeId);
+			}
 			
 			ongoing.put(name, structure);
 			
@@ -890,7 +942,7 @@ public class SwaggerParser {
 			result = new MarshallableSimpleTypeExtension(typeId, isRoot ? definition.getId() : null, name, simpleType);
 		}
 		
-		if (isRoot) {
+		if (isRoot && !alreadyRegistered) {
 			if (result instanceof SimpleType) {
 				((ModifiableTypeRegistry) definition.getRegistry()).register((SimpleType<?>) result);
 			}
