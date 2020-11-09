@@ -101,6 +101,14 @@ public class SwaggerParser {
 	// prepulate complex types to allow for circular references
 	private boolean usePrepulation = true;
 	
+	// you can set a base id for the types
+	private String typeBase;
+	
+	// whether or not we want to cleanup the type names
+	// this doesn't work, type registries require unique namespace + name combinations
+	// we can set the type registry to use ids when possible (instead of the name) but than the resolving no longer works, as it _does_ generally search by actual name instead of id
+	private boolean cleanupTypeNames = false;
+	
 	public static void main(String...args) throws IOException {
 		URL url = new URL("https://raw.githubusercontent.com/OAI/OpenAPI-Specification/master/examples/v2.0/json/petstore.json");
 		url = new URL("https://raw.githubusercontent.com/OAI/OpenAPI-Specification/master/examples/v2.0/json/petstore-expanded.json");
@@ -494,7 +502,11 @@ public class SwaggerParser {
 	
 	@SuppressWarnings("unchecked")
 	private void parseDefinitions(SwaggerDefinitionImpl definition, MapContent content) throws ParseException {
-		definition.setRegistry(new TypeRegistryImpl());
+		TypeRegistryImpl registry = new TypeRegistryImpl();
+		if (cleanupTypeNames) {
+			registry.setUseTypeIds(true);
+		}
+		definition.setRegistry(registry);
 		if (usePrepulation) {
 			prepopulateTypes(definition, content);
 		}
@@ -537,6 +549,18 @@ public class SwaggerParser {
 	
 	private static void cleanupOperationId(SwaggerPath path, SwaggerMethodImpl method) {
 		method.setOperationId(SwaggerParser.cleanup(method.getOperationId() == null ? method.getMethod() + path.getPath(): method.getOperationId()));
+	}
+	
+	private String cleanupType(String name) {
+		String cleanup = cleanup(name);
+		if (typeBase != null && cleanup.startsWith(typeBase)) {
+			cleanup = cleanup.substring(typeBase.length());
+			// if you are cleaning up a "." path, don't start the remainder with one if you forgot to add it to the typebase
+			if (cleanup.startsWith(".")) {
+				cleanup = cleanup.substring(1);
+			}
+		}
+		return cleanup;
 	}
 	
 	public static String cleanup(String name) {
@@ -665,6 +689,25 @@ public class SwaggerParser {
 		}
 	}
 	
+	private String cleanupTypeName(String name) {
+		// if the name contains dots, we assume the part after the last dot is the real name and the rest is just hierarchy
+		// the hierarchy might be important, informative and necessary to make it unique (e.g. for our own types)
+		// but the name, as it is set in the type, is not required to be unique, but rather informative
+		// so we focus on that last part
+		// we do this with a specific boolean though, cause we need to update type registry behavior to match
+		// by default type registries rely on namespace + name to be unique, not the id
+		if (!cleanupTypeNames) {
+			return name;
+		}
+		int lastIndexOf = name.lastIndexOf('.');
+		if (lastIndexOf > 0 && lastIndexOf < name.length() - 1) {
+			return name.substring(lastIndexOf + 1);
+		}
+		else {
+			return name;
+		}
+	}
+	
 	// to allow for circular references, we add an empty definition at the root, a placeholder
 	// TODO: currently we don't prepopulate the simple types and arrays
 	// simple types likely won't have circular references
@@ -680,11 +723,11 @@ public class SwaggerParser {
 				
 				ModifiableType result = null;
 				if (type == null || type.equals("object")) {
-					String cleanedUpName = cleanup(entry.getKey().toString());
+					String cleanedUpName = cleanupType(entry.getKey().toString());
 					String typeId = definition.getId() + ".types." + cleanedUpName;
 					DefinedStructure structure = new DefinedStructure();
 					structure.setNamespace(definition.getId());
-					structure.setName(entry.getKey().toString());
+					structure.setName(cleanupTypeName(entry.getKey().toString()));
 					structure.setId(typeId);
 					result = structure;
 				}
@@ -704,7 +747,7 @@ public class SwaggerParser {
 	private Type parseDefinedType(SwaggerDefinition definition, String name, Map<String, Object> content, boolean isRoot, boolean checkUndefinedRequired, Map<String, Type> ongoing) throws ParseException {
 		String type = (String) content.get("type");
 		
-		String cleanedUpName = cleanup(name);
+		String cleanedUpName = cleanupType(name);
 		String typeId = definition.getId() + ".types." + cleanedUpName;
 		List<Value<?>> values = new ArrayList<Value<?>>();
 
@@ -715,8 +758,8 @@ public class SwaggerParser {
 			// we resolve from the registry just in case we registered it before through prepopulation
 			DefinedStructure structure;
 			
-			if (isRoot && definition.getRegistry().getComplexType(definition.getId(), name) != null) {
-				structure = (DefinedStructure) definition.getRegistry().getComplexType(definition.getId(), name);
+			if (isRoot && definition.getRegistry().getComplexType(definition.getId(), cleanupTypeNames ? typeId : name) != null) {
+				structure = (DefinedStructure) definition.getRegistry().getComplexType(definition.getId(), cleanupTypeNames ? typeId : name);
 				alreadyRegistered = true;
 			}
 			else {
@@ -724,7 +767,7 @@ public class SwaggerParser {
 				if (isRoot) {
 					structure.setNamespace(definition.getId());
 				}
-				structure.setName(name);
+				structure.setName(cleanupTypeName(name));
 				structure.setId(typeId);
 			}
 			
@@ -832,11 +875,11 @@ public class SwaggerParser {
 				structure.setSuperType(parsedDefinedType);
 				if (isRoot) {
 					structure.setNamespace(definition.getId());
-					structure.setName(name);
+					structure.setName(cleanupTypeName(name));
 					structure.setId(typeId);
 				}
 				else {
-					structure.setName(name);
+					structure.setName(cleanupTypeName(name));
 					structure.setId(parsedDefinedType instanceof DefinedType ? ((DefinedType) parsedDefinedType).getId() : typeId);
 				}
 //				if (isRoot && parsedDefinedType instanceof DefinedType && ((DefinedType) parsedDefinedType).getId().equals(structure.getId())) {
@@ -1047,6 +1090,14 @@ public class SwaggerParser {
 
 	public void setTimezone(TimeZone timezone) {
 		this.timezone = timezone;
+	}
+
+	public String getTypeBase() {
+		return typeBase;
+	}
+
+	public void setTypeBase(String typeBase) {
+		this.typeBase = typeBase;
 	}
 
 }
