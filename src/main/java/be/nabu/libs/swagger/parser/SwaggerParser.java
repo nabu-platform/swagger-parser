@@ -10,6 +10,7 @@ import java.net.URL;
 import java.nio.charset.Charset;
 import java.text.ParseException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Date;
 import java.util.HashMap;
@@ -47,6 +48,7 @@ import be.nabu.libs.types.api.SimpleType;
 import be.nabu.libs.types.api.Type;
 import be.nabu.libs.types.base.ComplexElementImpl;
 import be.nabu.libs.types.base.SimpleElementImpl;
+import be.nabu.libs.types.base.UUIDFormat;
 import be.nabu.libs.types.base.ValueImpl;
 import be.nabu.libs.types.binding.api.Window;
 import be.nabu.libs.types.binding.json.JSONBinding;
@@ -68,6 +70,7 @@ import be.nabu.libs.types.properties.MinLengthProperty;
 import be.nabu.libs.types.properties.MinOccursProperty;
 import be.nabu.libs.types.properties.PatternProperty;
 import be.nabu.libs.types.properties.TimezoneProperty;
+import be.nabu.libs.types.properties.UUIDFormatProperty;
 import be.nabu.libs.types.structure.DefinedStructure;
 import be.nabu.libs.validator.api.ValidationMessage;
 import be.nabu.libs.validator.api.ValidationMessage.Severity;
@@ -103,6 +106,7 @@ public class SwaggerParser {
 	
 	// you can set a base id for the types
 	private String typeBase;
+	private UUIDFormat uuidFormat;
 	
 	// whether or not we want to cleanup the type names
 	// this doesn't work, type registries require unique namespace + name combinations
@@ -682,7 +686,11 @@ public class SwaggerParser {
 		}
 		Boolean required = (Boolean) content.get("required");
 		if (type instanceof SimpleType) {
-			return new SimpleElementImpl(name, (SimpleType<?>) type, null, new ValueImpl(MinOccursProperty.getInstance(), required == null || !required ? 0 : 1));
+			List<Value> values = new ArrayList<Value>(Arrays.asList(new ValueImpl(MinOccursProperty.getInstance(), required == null || !required ? 0 : 1)));
+			if (UUID.class.isAssignableFrom(((SimpleType) type).getInstanceClass()) && uuidFormat != null) {
+				values.add(new ValueImpl<UUIDFormat>(UUIDFormatProperty.getInstance(), uuidFormat));
+			}
+			return new SimpleElementImpl(name, (SimpleType<?>) type, null, values.toArray(new Value[values.size()]));
 		}
 		else {
 			return new ComplexElementImpl(name, (ComplexType) type, null, new ValueImpl(MinOccursProperty.getInstance(), required == null || !required ? 0 : 1));
@@ -968,6 +976,9 @@ public class SwaggerParser {
 				}
 				else if (format.equals("uuid")) {
 					simpleType = SimpleTypeWrapperFactory.getInstance().getWrapper().wrap(UUID.class);
+					if (uuidFormat != null) {
+						values.add(new ValueImpl<UUIDFormat>(UUIDFormatProperty.getInstance(), uuidFormat));	
+					}
 				}
 				else {
 					simpleType = SimpleTypeWrapperFactory.getInstance().getWrapper().wrap(String.class);
@@ -1098,6 +1109,14 @@ public class SwaggerParser {
 
 	public void setTypeBase(String typeBase) {
 		this.typeBase = typeBase;
+	}
+
+	public UUIDFormat getUuidFormat() {
+		return uuidFormat;
+	}
+
+	public void setUuidFormat(UUIDFormat uuidFormat) {
+		this.uuidFormat = uuidFormat;
 	}
 
 }
