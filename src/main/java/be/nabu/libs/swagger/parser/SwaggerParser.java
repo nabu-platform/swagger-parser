@@ -19,6 +19,9 @@ import java.util.Map;
 import java.util.TimeZone;
 import java.util.UUID;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import be.nabu.libs.types.base.CollectionFormat;
 import be.nabu.libs.converter.ConverterFactory;
 import be.nabu.libs.property.ValueUtils;
@@ -103,6 +106,7 @@ public class SwaggerParser {
 	private boolean allowInvalidSwagger = true;
 	// prepulate complex types to allow for circular references
 	private boolean usePrepulation = true;
+	private Logger logger = LoggerFactory.getLogger(getClass());
 	
 	// you can set a base id for the types
 	private String typeBase;
@@ -127,6 +131,10 @@ public class SwaggerParser {
 	}
 	
 	public MapContent parseJson(String id, InputStream input) {
+		return parseJson(input);
+	}
+
+	public static MapContent parseJson(InputStream input) {
 		try {
 			JSONBinding binding = new JSONBinding(new MapTypeGenerator(true), Charset.forName("UTF-8"));
 			// we are not interested in comment sections that don't follow decent structures
@@ -543,6 +551,10 @@ public class SwaggerParser {
 		}
 	}
 	
+	public static void parseJsonSchema(InputStream input) {
+		MapContent parseJson = parseJson(input);
+	}
+	
 	public static boolean isValid(char character, boolean first, boolean last, boolean allowDots) {
 		if (!allowDots && character == '.') {
 			return false;
@@ -674,7 +686,7 @@ public class SwaggerParser {
 				type = findType(definition, (String) schema.get("$ref"), null);
 			}
 			// if it has no type but it does have properties, it is an object
-			else if (schema.get("type") != null || schema.get("properties") != null) {
+			else if (schema.get("type") != null || schema.get("properties") != null || schema.get("allOf") != null) {
 				type = parseDefinedType(definition, name, schema.getContent(), false, true, new HashMap<String, Type>());
 			}
 			else {
@@ -725,25 +737,51 @@ public class SwaggerParser {
 		MapContent definitions = (MapContent) root.get("definitions");
 		if (definitions != null) {
 			for (Object key : definitions.getContent().entrySet()) {
-				Map.Entry entry = ((Map.Entry) key);
-				MapContent content = (MapContent) entry.getValue();
-				String type = (String) content.get("type");
-				
-				ModifiableType result = null;
-				if (type == null || type.equals("object")) {
-					String cleanedUpName = cleanupType(entry.getKey().toString());
-					String typeId = definition.getId() + ".types." + cleanedUpName;
-					DefinedStructure structure = new DefinedStructure();
-					structure.setNamespace(definition.getId());
-					structure.setName(cleanupTypeName(entry.getKey().toString()));
-					structure.setId(typeId);
-					result = structure;
+				try {
+					Map.Entry entry = ((Map.Entry) key);
+					MapContent content = (MapContent) entry.getValue();
+					Object object = content.get("type");
+					/**
+					 * The sendgrid swagger contained 47 instances of:
+					 *  "type": [
+                            "null",
+                            "string"
+                        ],
+                        
+                        while not allowed by the spec, there does not seem a downside in adding (dubious) support for this
+					 */
+					if (object instanceof List) {
+						for (Object single : (List) object) {
+							if (single != null && !"null".equals(single)) {
+								object = single;
+								break;
+							}
+						}
+					}
+					// end of sendgrid "fix"
+					
+					String type = (String) object;
+					
+					ModifiableType result = null;
+					if (type == null || type.equals("object")) {
+						String cleanedUpName = cleanupType(entry.getKey().toString());
+						String typeId = definition.getId() + ".types." + cleanedUpName;
+						DefinedStructure structure = new DefinedStructure();
+						structure.setNamespace(definition.getId());
+						structure.setName(cleanupTypeName(entry.getKey().toString()));
+						structure.setId(typeId);
+						result = structure;
+					}
+					if (result instanceof SimpleType) {
+						((ModifiableTypeRegistry) definition.getRegistry()).register((SimpleType<?>) result);
+					}
+					else if (result instanceof ComplexType) {
+						((ModifiableTypeRegistry) definition.getRegistry()).register((ComplexType) result);
+					}
 				}
-				if (result instanceof SimpleType) {
-					((ModifiableTypeRegistry) definition.getRegistry()).register((SimpleType<?>) result);
-				}
-				else if (result instanceof ComplexType) {
-					((ModifiableTypeRegistry) definition.getRegistry()).register((ComplexType) result);
+				catch (Exception e) {
+					logger.error("Could not load definition for: " + key, e);
+					throw new RuntimeException(e);
 				}
 			}
 		}
@@ -753,7 +791,27 @@ public class SwaggerParser {
 	// the ongoing allows for circular references to oneself
 	@SuppressWarnings({ "unchecked", "rawtypes" })
 	private Type parseDefinedType(SwaggerDefinition definition, String name, Map<String, Object> content, boolean isRoot, boolean checkUndefinedRequired, Map<String, Type> ongoing) throws ParseException {
-		String type = (String) content.get("type");
+		Object object = content.get("type");
+		/**
+		 * The sendgrid swagger contained 47 instances of:
+		 *  "type": [
+                "null",
+                "string"
+            ],
+            
+            while not allowed by the spec, there does not seem a downside in adding (dubious) support for this
+		 */
+		if (object instanceof List) {
+			for (Object single : (List) object) {
+				if (single != null && !"null".equals(single)) {
+					object = single;
+					break;
+				}
+			}
+		}
+		// end of sendgrid "fix"
+		
+		String type = (String) object;
 		
 		String cleanedUpName = cleanupType(name);
 		String typeId = definition.getId() + ".types." + cleanedUpName;
@@ -822,7 +880,12 @@ public class SwaggerParser {
 				for (Object single : allOf) {
 					Map<String, Object> singleMap = ((MapContent) single).getContent();
 					if (!singleMap.containsKey("$ref")) {
-						parseStructureProperties(definition, name, ((MapContent) single).getContent(), structure, (MapContent) ((MapContent) single).get("properties"), ongoing);
+						if (((MapContent) single).get("properties") != null) {
+							parseStructureProperties(definition, name, ((MapContent) single).getContent(), structure, (MapContent) ((MapContent) single).get("properties"), ongoing);
+						}
+						else {
+							logger.warn("Could not find $ref or properties for allOf " + name);
+						}
 					}
 				}
 			}
@@ -1057,33 +1120,38 @@ public class SwaggerParser {
 	@SuppressWarnings({ "unchecked", "rawtypes" })
 	private void parseStructureProperties(SwaggerDefinition definition, String name, Map<String, Object> content, DefinedStructure structure, MapContent properties, Map<String, Type> ongoing) throws ParseException {
 		List<String> required = (List<String>) content.get("required");
-		for (Object key : properties.getContent().keySet()) {
-			MapContent propertyContent = (MapContent) properties.getContent().get(key);
-			String reference = (String) propertyContent.get("$ref");
-			Type childType;
-			if (reference != null) {
-				childType = findType(definition, reference, ongoing);
-			}
-			else {
-				childType = parseDefinedType(definition, (String) key, propertyContent.getContent(), false, false, ongoing);
-			}
-			if (childType instanceof SimpleType) {
-				structure.add(new SimpleElementImpl((String) key, (SimpleType<?>) childType, structure, new ValueImpl<Integer>(MinOccursProperty.getInstance(), required == null || !required.contains(key) ? 0 : 1)));
-			}
-			// if we have a complex type that extends "Object" and has no other properties, unwrap it
-			// ideally the parseDefinedType should probably be updated to parseElement or something so we don't need to extend types to transfer information...
-			else if (childType instanceof ComplexType && TypeUtils.getAllChildren((ComplexType) childType).isEmpty() && ((ComplexType) childType).getSuperType() instanceof BeanType && ((BeanType<?>) ((ComplexType) childType).getSuperType()).getBeanClass().equals(Object.class)) {
-				ComplexElementImpl element = new ComplexElementImpl((String) key, (ComplexType) childType.getSuperType(), structure, new ValueImpl<Integer>(MinOccursProperty.getInstance(), required == null || !required.contains(key) ? 0 : 1));
-				// inherit properties like maxOccurs
-				Integer maxOccurs = ValueUtils.getValue(MaxOccursProperty.getInstance(), childType.getProperties());
-				if (maxOccurs != null) {
-					element.setProperty(new ValueImpl<Integer>(MaxOccursProperty.getInstance(), maxOccurs));
+		if (properties.getContent() != null) {
+			for (Object key : properties.getContent().keySet()) {
+				MapContent propertyContent = (MapContent) properties.getContent().get(key);
+				String reference = (String) propertyContent.get("$ref");
+				Type childType;
+				if (reference != null) {
+					childType = findType(definition, reference, ongoing);
 				}
-				structure.add(element);				
+				else {
+					childType = parseDefinedType(definition, (String) key, propertyContent.getContent(), false, false, ongoing);
+				}
+				if (childType instanceof SimpleType) {
+					structure.add(new SimpleElementImpl((String) key, (SimpleType<?>) childType, structure, new ValueImpl<Integer>(MinOccursProperty.getInstance(), required == null || !required.contains(key) ? 0 : 1)));
+				}
+				// if we have a complex type that extends "Object" and has no other properties, unwrap it
+				// ideally the parseDefinedType should probably be updated to parseElement or something so we don't need to extend types to transfer information...
+				else if (childType instanceof ComplexType && TypeUtils.getAllChildren((ComplexType) childType).isEmpty() && ((ComplexType) childType).getSuperType() instanceof BeanType && ((BeanType<?>) ((ComplexType) childType).getSuperType()).getBeanClass().equals(Object.class)) {
+					ComplexElementImpl element = new ComplexElementImpl((String) key, (ComplexType) childType.getSuperType(), structure, new ValueImpl<Integer>(MinOccursProperty.getInstance(), required == null || !required.contains(key) ? 0 : 1));
+					// inherit properties like maxOccurs
+					Integer maxOccurs = ValueUtils.getValue(MaxOccursProperty.getInstance(), childType.getProperties());
+					if (maxOccurs != null) {
+						element.setProperty(new ValueImpl<Integer>(MaxOccursProperty.getInstance(), maxOccurs));
+					}
+					structure.add(element);				
+				}
+				else {
+					structure.add(new ComplexElementImpl((String) key, (ComplexType) childType, structure, new ValueImpl<Integer>(MinOccursProperty.getInstance(), required == null || !required.contains(key) ? 0 : 1)));
+				}
 			}
-			else {
-				structure.add(new ComplexElementImpl((String) key, (ComplexType) childType, structure, new ValueImpl<Integer>(MinOccursProperty.getInstance(), required == null || !required.contains(key) ? 0 : 1)));
-			}
+		}
+		else {
+			logger.warn("Empty properties found for: " + name);
 		}
 	}
 
