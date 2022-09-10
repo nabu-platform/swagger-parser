@@ -112,6 +112,10 @@ public class SwaggerParser {
 	private String typeBase;
 	private UUIDFormat uuidFormat;
 	
+	// for some reason some people generate as swagger where the format is set to "uuid" but it is actually not a valid uuid...
+	// for instance sendgrid for some reason uses a valid uuid but prepends it with "d-" making it invalid...
+	private boolean allowUuid = true;
+	
 	// whether or not we want to cleanup the type names
 	// this doesn't work, type registries require unique namespace + name combinations
 	// we can set the type registry to use ids when possible (instead of the name) but than the resolving no longer works, as it _does_ generally search by actual name instead of id
@@ -1037,7 +1041,7 @@ public class SwaggerParser {
 						values.add(new ValueImpl<TimeZone>(TimezoneProperty.getInstance(), timezone));
 					}
 				}
-				else if (format.equals("uuid")) {
+				else if (format.equals("uuid") && allowUuid) {
 					simpleType = SimpleTypeWrapperFactory.getInstance().getWrapper().wrap(UUID.class);
 					if (uuidFormat != null) {
 						values.add(new ValueImpl<UUIDFormat>(UUIDFormatProperty.getInstance(), uuidFormat));	
@@ -1187,4 +1191,12 @@ public class SwaggerParser {
 		this.uuidFormat = uuidFormat;
 	}
 
+	public boolean isAllowUuid() {
+		return allowUuid;
+	}
+
+	public void setAllowUuid(boolean allowUuid) {
+		this.allowUuid = allowUuid;
+	}
+	
 }
