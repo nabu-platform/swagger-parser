@@ -12,6 +12,7 @@ public class SwaggerResponseImpl implements SwaggerResponse {
 	private String description;
 	private Element<?> element;
 	private List<SwaggerParameter> headers;
+	private List<String> produces;
 	
 	@Override
 	public String getDescription() {
@@ -44,5 +45,14 @@ public class SwaggerResponseImpl implements SwaggerResponse {
 	public void setCode(Integer code) {
 		this.code = code;
 	}
+	
+	@Override
+	public List<String> getProduces() {
+		return produces;
+	}
+	public void setProduces(List<String> produces) {
+		this.produces = produces;
+	}
 
+	
 }

@@ -131,5 +131,9 @@ public class SwaggerMethodImpl implements SwaggerMethod {
 	public void setExtensions(Map<String, Object> extensions) {
 		this.extensions = extensions;
 	}
-	
+
+	@Override
+	public String toString() {
+		return method + "[" + operationId + "]";
+	}
 }

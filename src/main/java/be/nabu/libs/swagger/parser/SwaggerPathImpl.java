@@ -12,6 +12,7 @@ public class SwaggerPathImpl implements SwaggerPath {
 	private String path;
 	private List<SwaggerMethod> methods;
 	private Map<String, SwaggerParameter> parameters;
+	private String description, summary;
 	
 	@Override
 	public String getPath() {
@@ -28,7 +29,7 @@ public class SwaggerPathImpl implements SwaggerPath {
 	public void setMethods(List<SwaggerMethod> methods) {
 		this.methods = methods;
 	}
-	
+
 	public Map<String, SwaggerParameter> getParameters() {
 		return parameters;
 	}
@@ -36,5 +37,25 @@ public class SwaggerPathImpl implements SwaggerPath {
 		this.parameters = parameters;
 	}
 	
+	@Override
+	public String getDescription() {
+		return description;
+	}
+	public void setDescription(String description) {
+		this.description = description;
+	}
+	
+	@Override
+	public String getSummary() {
+		return summary;
+	}
+	public void setSummary(String summary) {
+		this.summary = summary;
+	}
+
+	@Override
+	public String toString() {
+		return path + methods;
+	}
 	
 }

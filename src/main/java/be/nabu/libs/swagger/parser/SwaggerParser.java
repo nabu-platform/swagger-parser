@@ -157,8 +157,12 @@ public class SwaggerParser {
 	}
 	
 	public SwaggerDefinition parse(String id, InputStream input) {
+		MapContent content = parseJson(id, input);
+		return parse(id, content);
+	}
+	
+	public SwaggerDefinition parse(String id, MapContent content) {
 		try {
-			MapContent content = parseJson(id, input);
 			SwaggerDefinitionImpl definition = new SwaggerDefinitionImpl(id);
 			List<ValidationMessage> validate = validate(content);
 			if (!validate.isEmpty() && !allowInvalidSwagger) {
@@ -567,8 +571,12 @@ public class SwaggerParser {
 		return (!first && character >= 48 && character <= 57) || (!first && !last && character == 46) || (character >= 65 && character <= 90) || (character >= 97 && character <= 122);
 	}
 	
-	private static void cleanupOperationId(SwaggerPath path, SwaggerMethodImpl method) {
+	public static void cleanupOperationId(SwaggerPath path, SwaggerMethodImpl method) {
 		method.setOperationId(SwaggerParser.cleanup(method.getOperationId() == null ? method.getMethod() + path.getPath(): method.getOperationId()));
+	}
+	
+	public static String cleanupOperationId(String path, String method, String operationId) {
+		return cleanup(operationId == null ? method + path : operationId);
 	}
 	
 	private String cleanupType(String name) {

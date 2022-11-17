@@ -13,6 +13,8 @@ public class SwaggerParameterImpl implements SwaggerParameter {
 	private Element<?> element;
 	private CollectionFormat collectionFormat;
 	private String name;
+	private String description;
+	private boolean explode, allowReserved;
 	
 	@Override
 	public ParameterLocation getLocation() {
@@ -76,6 +78,30 @@ public class SwaggerParameterImpl implements SwaggerParameter {
 	}
 	public void setName(String name) {
 		this.name = name;
+	}
+	
+	@Override
+	public String getDescription() {
+		return description;
+	}
+	public void setDescription(String description) {
+		this.description = description;
+	}
+	
+	@Override
+	public boolean isExplode() {
+		return explode;
+	}
+	public void setExplode(boolean explode) {
+		this.explode = explode;
+	}
+	
+	@Override
+	public boolean isAllowReserved() {
+		return allowReserved;
+	}
+	public void setAllowReserved(boolean allowReserved) {
+		this.allowReserved = allowReserved;
 	}
 	
 }
