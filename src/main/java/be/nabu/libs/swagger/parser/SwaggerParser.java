@@ -357,6 +357,10 @@ public class SwaggerParser {
 			if ("parameters".equalsIgnoreCase(method.toString())) {
 				continue;
 			}
+			// extensions at this level, usually for documentation etc
+			else if (method.toString().indexOf("x-") == 0) {
+				continue;
+			}
 			MapContent methodContent = (MapContent) content.getContent().get(method);
 			SwaggerMethodImpl swaggerMethod = new SwaggerMethodImpl();
 			swaggerMethod.setMethod((String) method);
@@ -1136,6 +1140,19 @@ public class SwaggerParser {
 			for (Object key : properties.getContent().keySet()) {
 				MapContent propertyContent = (MapContent) properties.getContent().get(key);
 				String reference = (String) propertyContent.get("$ref");
+				// we have had instances where both $ref and type were present, in this case they were the same, for example:
+				/*
+				        "properties": {
+					        "typeId": {
+					          "$ref": "string",
+					          "type": "string",
+					          "example": "00000000-0000-0000-0000-000000000000"
+					        }
+					     }
+				 */
+				if (reference != null && reference.equals(propertyContent.get("type"))) {
+					reference = null;
+				}
 				Type childType;
 				if (reference != null) {
 					childType = findType(definition, reference, ongoing);
