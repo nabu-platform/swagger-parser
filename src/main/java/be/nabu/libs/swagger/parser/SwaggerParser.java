@@ -124,6 +124,7 @@ public class SwaggerParser {
 	public static void main(String...args) throws IOException {
 		URL url = new URL("https://raw.githubusercontent.com/OAI/OpenAPI-Specification/master/examples/v2.0/json/petstore.json");
 		url = new URL("https://raw.githubusercontent.com/OAI/OpenAPI-Specification/master/examples/v2.0/json/petstore-expanded.json");
+		url = new URL("file:/home/alex/files/repository-nabu/testApplication/process/zoekenV2/swagger.json");
 		InputStream openStream = url.openStream();
 		try {
 			SwaggerDefinition definition = new SwaggerParser().parse("my.swagger", openStream);
@@ -502,7 +503,7 @@ public class SwaggerParser {
 			definition.setDefinitionType("swagger");
 			definition.setVersion((String) content.get("swagger"));	
 		}
-		else if ("3.0.0".equals(content.get("openapi"))) {
+		else if ("3.0.0".equals(content.get("openapi")) || "3.0.1".equals(content.get("openapi"))) {
 			definition.setDefinitionType("openapi");
 			definition.setVersion((String) content.get("openapi"));
 		}
@@ -702,7 +703,7 @@ public class SwaggerParser {
 				type = findType(definition, (String) schema.get("$ref"), null);
 			}
 			// if it has no type but it does have properties, it is an object
-			else if (schema.get("type") != null || schema.get("properties") != null || schema.get("allOf") != null) {
+			else if (schema.get("type") != null || schema.get("properties") != null || schema.get("allOf") != null || schema.get("anyOf") != null || schema.get("oneOf") != null) {
 				type = parseDefinedType(definition, name, schema.getContent(), false, true, new HashMap<String, Type>());
 			}
 			else {
@@ -856,8 +857,14 @@ public class SwaggerParser {
 			ongoing.put(name, structure);
 			
 			// allows for composition, it seems that multiple inheritance is possible which we do not support
-			if (content.get("allOf") != null) {
+			if (content.get("allOf") != null || content.get("oneOf") != null || content.get("anyOf") != null) {
 				List<Object> allOf = (List<Object>) content.get("allOf");
+				if (allOf == null) {
+					allOf = (List<Object>) content.get("oneOf");
+				}
+				if (allOf == null) {
+					allOf = (List<Object>) content.get("anyOf");
+				}
 				// first find the root we are extending (if any)
 				for (Object single : allOf) {
 					Map<String, Object> singleMap = ((MapContent) single).getContent();
