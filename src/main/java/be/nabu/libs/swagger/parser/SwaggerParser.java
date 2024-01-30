@@ -869,6 +869,12 @@ public class SwaggerParser {
 				for (Object single : allOf) {
 					Map<String, Object> singleMap = ((MapContent) single).getContent();
 					if (singleMap.containsKey("$ref")) {
+						// IMPORTANT: when you have an allOf (or whatever) of type A and B
+						// the first type (A) will be set as supertype and B will be copied
+						// however if B is not yet properly parsed it will exist by reference but be empty
+						// we should retry parsing at a later point
+						// however at that point A is already set as supertype, check openapi implementation for similar details
+						
 						// the first ref will be mapped as a supertype
 						if (structure.getSuperType() == null) {
 							Type superType = findType(definition, (String) singleMap.get("$ref"), ongoing);
