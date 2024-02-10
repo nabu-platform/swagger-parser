@@ -891,11 +891,14 @@ public class SwaggerParser {
 							}
 							if (superType instanceof ComplexType) {
 								for (Element<?> child : TypeUtils.getAllChildren((ComplexType) superType)) {
-									if (child.getType() instanceof ComplexType) {
-										structure.add(new ComplexElementImpl(child.getName(), (ComplexType) child.getType(), structure, child.getProperties()));
-									}
-									else {
-										structure.add(new SimpleElementImpl(child.getName(), (SimpleType<?>) child.getType(), structure, child.getProperties()));
+									// don't readd
+									if (structure.get(child.getName()) == null) {
+										if (child.getType() instanceof ComplexType) {
+											structure.add(new ComplexElementImpl(child.getName(), (ComplexType) child.getType(), structure, child.getProperties()));
+										}
+										else {
+											structure.add(new SimpleElementImpl(child.getName(), (SimpleType<?>) child.getType(), structure, child.getProperties()));
+										}
 									}
 								}
 							}
