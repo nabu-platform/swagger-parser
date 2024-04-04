@@ -98,6 +98,10 @@ import be.nabu.libs.validator.api.ValidationMessage.Severity;
  */
 public class SwaggerParser {
 
+	// you can set a type mapping where types will be added with a different name than the definition
+	// the key is the "original" name as it occurs in the swagger, the value is the new name
+	private Map<String, String> typeMapping;
+	
 	private TimeZone timezone;
 	private boolean allowRemoteResolving = false;
 	private List<SwaggerSecuritySetting> globalSecurity;
@@ -585,6 +589,8 @@ public class SwaggerParser {
 	}
 	
 	private String cleanupType(String name) {
+		// first map it!
+		name = mapTypeName(name);
 		String cleanup = cleanup(name);
 		if (typeBase != null && cleanup.startsWith(typeBase)) {
 			cleanup = cleanup.substring(typeBase.length());
@@ -630,16 +636,23 @@ public class SwaggerParser {
 		return builder.toString();
 	}
 	
+	private String mapTypeName(String name) {
+		return typeMapping != null && typeMapping.get(name) != null ? typeMapping.get(name) : name;
+	}
+	
 	private Type findType(SwaggerDefinition definition, String name, Map<String, Type> ongoing) throws ParseException {
 		if (name.startsWith("#/definitions/")) {
 			name = name.substring("#/definitions/".length());
 		}
+		String originalName = name;
+		name = cleanupType(name);
+		
 		Type type = definition.getRegistry().getComplexType(definition.getId(), name);
 		if (type == null) {
 			type = definition.getRegistry().getSimpleType(definition.getId(), name);
 		}
-		if (type == null && ongoing.containsKey(name)) {
-			return ongoing.get(name);
+		if (type == null && ongoing.containsKey(originalName)) {
+			return ongoing.get(originalName);
 		}
 		if (type == null) {
 			name = cleanup(name);
@@ -785,15 +798,25 @@ public class SwaggerParser {
 						String typeId = definition.getId() + ".types." + cleanedUpName;
 						DefinedStructure structure = new DefinedStructure();
 						structure.setNamespace(definition.getId());
-						structure.setName(cleanupTypeName(entry.getKey().toString()));
+						structure.setName(cleanupTypeName(cleanedUpName));
 						structure.setId(typeId);
 						result = structure;
 					}
+					// because of type mapping, we may force a type to exist twice
+					// for example we had an external party that was updating its type structure piece by piece, specifically moving stuff around
+					// in the transition releases between the original and the ultimate refactor, they released multiple versions where the same type existed twice: in the old location and the new
+					// we can force them to be the same but they can not be registered twice
 					if (result instanceof SimpleType) {
-						((ModifiableTypeRegistry) definition.getRegistry()).register((SimpleType<?>) result);
+						SimpleType<?> simpleType = definition.getRegistry().getSimpleType(result.getNamespace(), result.getName());
+						if (simpleType == null) {
+							((ModifiableTypeRegistry) definition.getRegistry()).register((SimpleType<?>) result);
+						}
 					}
 					else if (result instanceof ComplexType) {
-						((ModifiableTypeRegistry) definition.getRegistry()).register((ComplexType) result);
+						ComplexType complexType = definition.getRegistry().getComplexType(result.getNamespace(), result.getName());
+						if (complexType == null) {
+							((ModifiableTypeRegistry) definition.getRegistry()).register((ComplexType) result);
+						}
 					}
 				}
 				catch (Exception e) {
@@ -831,6 +854,8 @@ public class SwaggerParser {
 		String type = (String) object;
 		
 		String cleanedUpName = cleanupType(name);
+		// make sure we use the cleaned up (and potentially renamed!) version
+		name = cleanedUpName;
 		String typeId = definition.getId() + ".types." + cleanedUpName;
 		List<Value<?>> values = new ArrayList<Value<?>>();
 
@@ -1239,5 +1264,12 @@ public class SwaggerParser {
 	public void setAllowUuid(boolean allowUuid) {
 		this.allowUuid = allowUuid;
 	}
-	
+
+	public Map<String, String> getTypeMapping() {
+		return typeMapping;
+	}
+
+	public void setTypeMapping(Map<String, String> typeMapping) {
+		this.typeMapping = typeMapping;
+	}
 }
