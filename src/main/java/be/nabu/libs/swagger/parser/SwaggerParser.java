@@ -97,7 +97,9 @@ import be.nabu.libs.validator.api.ValidationMessage.Severity;
  The petType must also be in the list of properties of the type _and_ be in the required list.
  */
 public class SwaggerParser {
-
+	// we should be using big numbers by default when no specific format is set. however, this realisation came too late :(
+	private boolean useDefaultBigNumbers = false;
+	
 	// you can set a type mapping where types will be added with a different name than the definition
 	// the key is the "original" name as it occurs in the swagger, the value is the new name
 	private Map<String, String> typeMapping;
@@ -1036,6 +1038,9 @@ public class SwaggerParser {
 				else if (format.equals("float")) {
 					simpleType = SimpleTypeWrapperFactory.getInstance().getWrapper().wrap(Float.class);
 				}
+				else if (useDefaultBigNumbers) {
+					simpleType = SimpleTypeWrapperFactory.getInstance().getWrapper().wrap(BigDecimal.class);
+				}
 				else {
 					simpleType = SimpleTypeWrapperFactory.getInstance().getWrapper().wrap(Double.class);
 					values.add(new ValueImpl<String>(CommentProperty.getInstance(), "Unsupported Format: " + format));
@@ -1053,6 +1058,9 @@ public class SwaggerParser {
 				}
 				else if (format.equalsIgnoreCase("bigDecimal")) {
 					simpleType = SimpleTypeWrapperFactory.getInstance().getWrapper().wrap(BigDecimal.class);
+				}
+				else if (useDefaultBigNumbers) {
+					simpleType = SimpleTypeWrapperFactory.getInstance().getWrapper().wrap(BigInteger.class);
 				}
 				else {
 					simpleType = SimpleTypeWrapperFactory.getInstance().getWrapper().wrap(Long.class);
@@ -1271,5 +1279,13 @@ public class SwaggerParser {
 
 	public void setTypeMapping(Map<String, String> typeMapping) {
 		this.typeMapping = typeMapping;
+	}
+
+	public boolean isUseDefaultBigNumbers() {
+		return useDefaultBigNumbers;
+	}
+
+	public void setUseDefaultBigNumbers(boolean useDefaultBigNumbers) {
+		this.useDefaultBigNumbers = useDefaultBigNumbers;
 	}
 }
