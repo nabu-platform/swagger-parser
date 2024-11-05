@@ -1,5 +1,6 @@
 package be.nabu.libs.swagger.parser;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -10,6 +11,7 @@ import be.nabu.libs.swagger.api.SwaggerParameter;
 import be.nabu.libs.swagger.api.SwaggerPath;
 import be.nabu.libs.swagger.api.SwaggerSecurityDefinition;
 import be.nabu.libs.swagger.api.SwaggerSecuritySetting;
+import be.nabu.libs.swagger.api.SwaggerTag;
 import be.nabu.libs.types.api.TypeRegistry;
 import be.nabu.libs.validator.api.ValidationMessage;
 
@@ -27,6 +29,7 @@ public class SwaggerDefinitionImpl implements SwaggerDefinition, Artifact {
 	private List<SwaggerSecurityDefinition> securityDefinitions;
 	private List<SwaggerSecuritySetting> globalSecurity;
 	private List<ValidationMessage> messages;
+	private List<SwaggerTag> tags = new ArrayList<SwaggerTag>();
 	
 	public SwaggerDefinitionImpl(String id) {
 		this.id = id;
@@ -146,4 +149,12 @@ public class SwaggerDefinitionImpl implements SwaggerDefinition, Artifact {
 		this.messages = messages;
 	}
 
+	@Override
+	public List<SwaggerTag> getTags() {
+		return tags;
+	}
+	public void setTags(List<SwaggerTag> tags) {
+		this.tags = tags;
+	}
+	
 }
