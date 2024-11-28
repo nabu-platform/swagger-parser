@@ -1049,7 +1049,11 @@ public class SwaggerParser {
 			// but apart from that you can use any format you choose
 			String format = (String) content.get("format");
 			if (type.equals("number")) {
-				if (format == null || format.equals("double")) {
+				// @2024-11-28 in openapi 3 it is pretty clear that no format should end in an infinitely precise number, in v2 it does not appear to be supported without "format", but json schema does denote arbitrary precision
+				if (format == null) {
+					simpleType = SimpleTypeWrapperFactory.getInstance().getWrapper().wrap(BigDecimal.class);
+				}
+				else if (format.equals("double")) {
 					simpleType = SimpleTypeWrapperFactory.getInstance().getWrapper().wrap(Double.class);
 				}
 				else if (format.equals("float")) {
@@ -1064,7 +1068,11 @@ public class SwaggerParser {
 				}
 			}
 			else if (type.equals("integer")) {
-				if (format == null || format.equals("int32")) {
+				// @2024-11-28 in openapi 3 it is pretty clear that no format should end in an infinitely precise integer, in v2 it does not appear to be supported without "format", but json schema does denote arbitrary precision
+				if (format == null) {
+					simpleType = SimpleTypeWrapperFactory.getInstance().getWrapper().wrap(BigInteger.class);
+				}
+				else if (format.equals("int32")) {
 					simpleType = SimpleTypeWrapperFactory.getInstance().getWrapper().wrap(Integer.class);
 				}
 				else if (format.equals("int64")) {
