@@ -144,6 +144,9 @@ public class SwaggerParser {
 	// we can set the type registry to use ids when possible (instead of the name) but than the resolving no longer works, as it _does_ generally search by actual name instead of id
 	private boolean cleanupTypeNames = false;
 	
+	// to avoid potential naming conflicts between type definitions in the definitions section and response section, we prefix the responses
+	private String responsePrefix = "response";
+	
 	public static void main(String...args) throws IOException {
 		URL url = new URL("https://raw.githubusercontent.com/OAI/OpenAPI-Specification/master/examples/v2.0/json/petstore.json");
 		url = new URL("https://raw.githubusercontent.com/OAI/OpenAPI-Specification/master/examples/v2.0/json/petstore-expanded.json");
@@ -203,6 +206,7 @@ public class SwaggerParser {
 			}
 			parseInitial(definition, content);
 			parseDefinitions(definition, content);
+			parseResponses(definition, content);
 			parseSecurityDefinitions(definition, content);
 			definition.setGlobalSecurity(parseSecurity(content));
 			
@@ -587,6 +591,45 @@ public class SwaggerParser {
 		}
 	}
 	
+	// you can define a separate "responses" part which allows you to reuse response definitions
+	@SuppressWarnings({ "rawtypes", "unchecked" })
+	private void parseResponses(SwaggerDefinitionImpl definition, MapContent content) throws ParseException {
+		MapContent responses = (MapContent) content.get("responses");
+		if (responses != null) {
+			List<String> previousFailed = null;
+			List<String> failed = null;
+			while (previousFailed == null || failed.size() < previousFailed.size()) {
+				Collection<?> toParse = failed == null ? responses.getContent().keySet() : failed;
+				previousFailed = failed;
+				failed = new ArrayList<String>();
+				for (Object typeName : toParse) {
+					try {
+						Map responseContent = ((MapContent) responses.getContent().get(typeName)).getContent();
+						Object responseSchema = responseContent.get("schema");
+						String name = (String) typeName;
+						if (responsePrefix != null) {
+							name = responsePrefix + name;
+						}
+						// if we have no schema, we might have an empty response (like 204), we still want it to be represented in the types, just without a body
+						parseDefinedType(definition, name, responseSchema == null ? new HashMap<String, Object>() : ((MapContent) responseSchema).getContent(), true, false, new HashMap<String, Type>());
+					}
+					catch (ParseException e) {
+						// we should repeat
+						if (e.getErrorOffset() == 1) {
+							failed.add((String) typeName);
+						}
+						else {
+							throw e;
+						}
+					}
+				}
+			}
+			if (failed != null && !failed.isEmpty()) {
+				throw new ParseException("Could not parse all the elements: " + failed, 0);
+			}
+		}
+	}
+	
 	public static void parseJsonSchema(InputStream input) {
 		MapContent parseJson = parseJson(input);
 	}
@@ -663,6 +706,9 @@ public class SwaggerParser {
 		if (name.startsWith("#/definitions/")) {
 			name = name.substring("#/definitions/".length());
 		}
+		else if (name.startsWith("#/responses/")) {
+			name = (responsePrefix == null ? "" : responsePrefix) + name.substring("#/responses/".length());
+		}
 		String originalName = name;
 		name = cleanupType(name);
 		
@@ -670,7 +716,7 @@ public class SwaggerParser {
 		if (type == null) {
 			type = definition.getRegistry().getSimpleType(definition.getId(), name);
 		}
-		if (type == null && ongoing.containsKey(originalName)) {
+		if (type == null && ongoing != null && ongoing.containsKey(originalName)) {
 			return ongoing.get(originalName);
 		}
 		if (type == null) {
@@ -679,7 +725,7 @@ public class SwaggerParser {
 			if (type == null) {
 				type = definition.getRegistry().getSimpleType(definition.getId(), name);
 			}
-			if (type == null && ongoing.containsKey(name)) {
+			if (type == null && ongoing != null && ongoing.containsKey(name)) {
 				return ongoing.get(name);
 			}
 		}
