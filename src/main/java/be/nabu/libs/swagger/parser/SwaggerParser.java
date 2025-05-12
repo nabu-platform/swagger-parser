@@ -168,6 +168,8 @@ public class SwaggerParser {
 	public static MapContent parseJson(InputStream input) {
 		try {
 			JSONBinding binding = new JSONBinding(new MapTypeGenerator(true), Charset.forName("UTF-8"));
+			// we don't want dynamic fallback to attributes, we have actually had usecases where people define both "@id" AND "id", depending on the order of the definition, this can be problematic
+			binding.setAllowAttributeFallback(false);
 			// we are not interested in comment sections that don't follow decent structures
 			// regular swagger should be properly structured
 			binding.setIgnoreInconsistentTypes(true);
