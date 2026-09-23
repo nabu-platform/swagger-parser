@@ -974,6 +974,12 @@ public class SwaggerParser {
 								throw new ParseException("Can not find super type: " + singleMap.get("$ref"), 1);
 							}
 							structure.setSuperType(superType);
+							Integer inheritedMaxOccurs = ValueUtils.getValue(MaxOccursProperty.getInstance(), TypeUtils.getAllProperties(superType).toArray(new Value[0]));
+							if (inheritedMaxOccurs != null) {
+								values.add(new ValueImpl<Integer>(MaxOccursProperty.getInstance(), inheritedMaxOccurs));
+								Integer inheritedMinOccurs = ValueUtils.getValue(MinOccursProperty.getInstance(), TypeUtils.getAllProperties(superType).toArray(new Value[0]));
+								values.add(new ValueImpl<Integer>(MinOccursProperty.getInstance(), inheritedMinOccurs == null ? 0 : inheritedMinOccurs));
+							}
 						}
 						// other refs are expanded in it
 						else {
@@ -1007,8 +1013,12 @@ public class SwaggerParser {
 						if (((MapContent) single).get("properties") != null) {
 							parseStructureProperties(definition, name, ((MapContent) single).getContent(), structure, (MapContent) ((MapContent) single).get("properties"), ongoing);
 						}
+						else if (((MapContent) single).get("items") instanceof MapContent && ((MapContent) ((MapContent) single).get("items")).get("properties") != null) {
+							MapContent items = (MapContent) ((MapContent) single).get("items");
+							parseStructureProperties(definition, name, items.getContent(), structure, (MapContent) items.get("properties"), ongoing);
+						}
 						else {
-							logger.warn("Could not find $ref or properties for allOf " + name);
+							logger.warn("Could not find $ref, properties or item properties for allOf " + name);
 						}
 					}
 				}
